@@ -183,6 +183,8 @@ export function toResolvedTextApiSettings(config) {
     baseUrl: config.baseUrl || null,
     apiKey: clientKey || null,
     model: config.model || null,
+    contextWindow: config.contextWindow,
+    maxOutputTokens: config.maxOutputTokens,
     format: null,
     builtin: false,
     serverKey: false,
@@ -204,6 +206,8 @@ export function normalizeTextProviderConfig(input = {}) {
     baseUrl: String(input.baseUrl || defaults.baseUrl).trim().replace(/\/+$/, ''),
     apiKey: String(input.apiKey || '').trim(),
     model: String(input.model || defaults.model).trim(),
+    ...(Number.isSafeInteger(Number(input.contextWindow)) && Number(input.contextWindow) > 0 ? { contextWindow: Number(input.contextWindow) } : {}),
+    ...(Number.isSafeInteger(Number(input.maxOutputTokens)) && Number(input.maxOutputTokens) > 0 ? { maxOutputTokens: Number(input.maxOutputTokens) } : {}),
     builtin: false,
     serverKey: false
   }

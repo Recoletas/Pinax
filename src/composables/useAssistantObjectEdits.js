@@ -43,7 +43,7 @@ export function useAssistantObjectEdits({ review, items, selectedId, kind = 'wor
         return { before: source, after, pending: true, key, busy: input.busy, error: input.error || '' }
       } catch (error) { return { before: source, after: source, pending: true, key, busy: input.busy, error: error.message } }
     }
-    if (!source || !receipts.value.length || input.proposal.reviewedTargets?.includes(`${kind}:${id}`)) return null
+    if (input.permissionMode === 'auto' || !source || !receipts.value.length || input.proposal.reviewedTargets?.includes(`${kind}:${id}`)) return null
     // Later manual edits are not assistant changes; never label them as such.
     const latest = new Map(receipts.value.filter(change => !change.created).map(change => [change.field, change]))
     if ([...latest.values()].some(change => change.details && entryDetailsSnapshot(source) !== change.appliedDetails)) return null

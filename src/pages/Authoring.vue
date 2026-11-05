@@ -57,7 +57,7 @@
             <button type="button" role="menuitem" data-test="more-backup-settings" @click="moreAction(openBackupSettings)">{{ tr('备份与恢复') }}</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">{{ tr('导出当前章节') }}</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">{{ tr('导出整本书') }}</button>
-            <button type="button" role="menuitem" @click="moreAction(openManuscriptImport)">{{ tr('导入 TXT / Markdown') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(manuscriptImport.openBook)">{{ tr('导入 TXT / Markdown') }}</button>
             <button type="button" role="menuitem" @click="moreAction(exportChapterStoryboardDraft)" :disabled="!selectedChapterId">{{ tr('导出章节分镜') }}</button>
             <button type="button" role="menuitem" @click="moreAction(openAssetInbox)">{{ tr('素材收件箱') }}</button>
             <button type="button" role="menuitem" @click="moreAction(openMaterialsPage)">{{ tr('素材库') }}</button>
@@ -140,7 +140,7 @@
         :aria-label="tr(&quot;章节书架&quot;)"
       >
         <div class="wall__shelf-manuscript">
-          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" :refresh-worldbook="refreshDirectoryWorldbook" @manage-worldbook="openBindingSelect" />
+          <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-chapter-title="currentChapterTitle" :delete-chapters="deleteDirectoryChapters" :reorder-chapters="reorderDirectoryChapters" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" :refresh-worldbook="refreshDirectoryWorldbook" @manage-worldbook="openBindingSelect" @import-chapter="manuscriptImport.openChapters" />
           <div v-show="directoryMode === 'chapters' || !selectedBookId">
           <div class="authoring-chapter-search">
             <WorkbenchIcon name="search" :size="14" />
@@ -276,13 +276,12 @@
             </div>
             <div class="wall__empty-actions">
               <button class="wall__pin-cta" type="button" @click="createNewBook">{{ tr('新建书稿') }}</button>
-              <button class="wall__pin-link" type="button" data-test="empty-import-manuscript" @click="openManuscriptImport">{{ tr('导入 TXT / Markdown') }}</button>
+              <button class="wall__pin-link" type="button" data-test="empty-import-manuscript" @click="manuscriptImport.openBook">{{ tr('导入 TXT / Markdown') }}</button>
             </div>
           </div>
         </template>
 
         <template v-else-if="!selectedChapterId">
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && change.operation === 'create')" kind="chapter" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
               <span class="wall__empty-kicker">{{ tr('空白章节') }}</span>
@@ -429,11 +428,10 @@
                 <button type="button" class="control-quiet tool-btn sm wt3-back-btn" @click="closeExplorationDoc">{{ tr('返回正文') }}</button>
               </template>
               <template v-else>
-                <span v-if="selectedChapterOrdinalLabel" class="wall__chapter-ordinal" aria-hidden="true">{{ selectedChapterOrdinalLabel }}</span>
-                <input v-model="currentChapterTitle" type="text" class="wall__dossier-title"
+                <input v-model="editableChapterTitle" type="text" class="wall__dossier-title"
                   :disabled="historyInteractionLocked" :aria-disabled="historyInteractionLocked.toString()"
                   :title="currentChapterTitle"
-                  :placeholder="selectedChapterOrdinalLabel ? tr('章名') : tr('章节标题')" @input="onTitleChange" :aria-label="tr(&quot;章节标题&quot;)" />
+                  :placeholder="tr('章节标题')" @input="onTitleChange" :aria-label="tr(&quot;章节标题&quot;)" />
               </template>
             </header>
 
@@ -448,13 +446,12 @@
               @advance="advanceFirstRunGuide"
               @dismiss="dismissFirstRunGuide"
             />
-            <div v-if="!knowledgeAssistant.proposalReview.value && assistantPanelProposals.length" class="writing-inspector__pending-proposals"><button v-for="proposal in assistantPanelProposals" :key="proposal.id" type="button" @click="knowledgeAssistant.reviewProposal(proposal.messageId)">{{ tr('查看修改建议') }} · {{ proposal.changes.find(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook'))?.label }}</button></div>
-        <AuthoringAgentProposalReview :error="knowledgeAssistant.error.value" :proposal="knowledgeAssistant.proposalReview.value" :busy="knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy" v-if="knowledgeAssistant.proposalReview.value?.changes.some(change => change.kind === 'chapter' && (change.targetId === selectedChapterId || change.operation === 'create'))" kind="chapter" :compact="!knowledgeAssistant.proposalReview.value.changes.some(change => change.operation === 'create')" @adopt="knowledgeAssistant.applyAgentProposal()" @discard="knowledgeAssistant.applyAgentProposal({ discard: true })" @undo="knowledgeAssistant.applyAgentProposal({ undo: true })" @close="knowledgeAssistant.closeProposal()" @locate="locateAssistantProposal" @adopt-change="knowledgeAssistant.applyAgentProposal({ changeIds: [$event] })" @discard-change="knowledgeAssistant.applyAgentProposal({ discard: true, changeIds: [$event] })" />
+            <div v-if="assistantPanelProposals.length" class="writing-inspector__pending-proposals"><button v-for="proposal in assistantPanelProposals" :key="proposal.id" type="button" @click="knowledgeAssistant.reviewProposal(proposal.messageId)">{{ tr('查看修改建议') }} · {{ proposal.changes.find(change => change.kind === (activeInspectorTool === 'outline' ? 'outline' : 'worldbook'))?.label }}</button></div>
             <WritingNotebookEditor
               :key="notebookDocumentKey"
               ref="notebookEditorRef"
-              :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, chapterId: selectedChapterId, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy }"
-              @assistant-edit-action="knowledgeAssistant.applyAgentProposal({ discard: $event.action === 'discard', changeIds: [$event.changeId] })"
+              :assistant-review="null"
+              @assistant-edit-action="applyInlineAssistantChange"
               :model-value="markdownContent"
               :document="writingDocument"
               :editable="!pendingGhostAdoption && !atomicHistoryBusy"
@@ -663,6 +660,11 @@
                 <button type="button" :title="tr(&quot;将选中文字提取为待确认的项目事实&quot;)" data-action="remember-selection" @click="rememberSelectionFromMenu">
                   <WorkbenchIcon name="sparkles" :size="14" />
                   <span>{{ tr('事实') }}</span>
+                </button>
+                <span aria-hidden="true"></span>
+                <button type="button" :title="tr('把选中文字引用到助手')" data-action="quote-to-assistant" @click="quoteSelectionToAssistant">
+                  <WorkbenchIcon name="quote" :size="14" />
+                  <span>{{ tr('在助手里引用') }}</span>
                 </button>
               </div>
             </Teleport>
@@ -1047,7 +1049,7 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'outline'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="outline">
-          <AuthoringOutlinePanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :key="selectedBookId" :book-id="selectedBookId"
+          <AuthoringOutlinePanel :assistant-review="null" @assistant-edit-action="knowledgeAssistant.actOnProposal" :key="selectedBookId" :book-id="selectedBookId"
             :chapter-id="selectedChapterId"
             :items="chapterOutlineItems"
             :project-nodes="wt3OutlineNodes"
@@ -1074,7 +1076,7 @@
           />
         </div>
         <div v-else-if="activeInspectorTool === 'worldbook'" class="writing-inspector__body" data-authoring-inspector="worldbook">
-          <AuthoringWorldbookPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal"
+          <AuthoringWorldbookPanel :assistant-review="null" @assistant-edit-action="knowledgeAssistant.actOnProposal"
             :worldbook="boundWorldbook"
             :book-id="selectedBookId"
             :selected-text="selectedText"
@@ -1241,7 +1243,7 @@
           :chapter-selected="Boolean(selectedChapterId) && !wt3ActiveDoc"
         />
         <div v-else-if="activeInspectorTool === 'characters'" class="writing-inspector__body writing-inspector__body--catalog" data-authoring-inspector="characters">
-          <AuthoringCharacterPanel :assistant-review="{ proposal: knowledgeAssistant.proposalReview.value, busy: knowledgeAssistant.busy.value || knowledgeAssistant.agentState.value.adoptionBusy, error: knowledgeAssistant.error.value, bookId: selectedBookId }" @assistant-edit-action="knowledgeAssistant.actOnProposal" :manuscript-language="currentBook?.manuscriptLanguage"
+          <AuthoringCharacterPanel :assistant-review="null" @assistant-edit-action="knowledgeAssistant.actOnProposal" :manuscript-language="currentBook?.manuscriptLanguage"
             :worldbook="boundWorldbook"
             :chapters="chapters"
             :current-chapter-id="selectedChapterId"
@@ -1514,17 +1516,20 @@
     </Transition>
     <AuthoringManuscriptImport
       v-if="showManuscriptImport"
-      @close="closeManuscriptImport"
-      @import="confirmManuscriptImport"
+      :target="manuscriptImportTarget"
+      :target-title="currentBook?.title || ''"
+      @close="manuscriptImport.close"
+      @import="manuscriptImport.confirmBook"
+      @import-chapters="manuscriptImport.confirmChapters"
     />
   </div>
 </template>
 
 <script setup>
 import { chineseChapterNumber, writingChapterRowLabel, writingChapterRowParts } from '../services/writing/writingChapterLabels.js'
+import { useManuscriptImport } from '../composables/useManuscriptImport.js'
 import { tr, uiLocale } from '../i18n/index.js'
 import { inferWritingLanguage } from '../../shared/writingLanguage.js'
-import { getChapterMarkdown } from '../services/writing/writingDocumentSchema.js'
 import { countWritingText, writingTextMetrics } from '../../shared/writingTextMetrics.js'
 import { ref, reactive, shallowRef, computed, watch, onMounted, onBeforeUnmount, nextTick, defineAsyncComponent } from 'vue'
 import { clampWorkspaceMenuPosition } from '../services/workspace/workspacePopupPosition.js'
@@ -1557,8 +1562,9 @@ const AuthoringDualPane = defineAsyncComponent(() => import('../components/autho
 const AuthoringQuickWords = defineAsyncComponent(() => import('../components/authoring/AuthoringQuickWords.vue'))
 import { useAuthoringDirectory } from '../composables/useAuthoringDirectory.js'
 const ProjectDirectory = defineAsyncComponent(() => import('../components/workbench/ProjectDirectory.vue'))
-const { directoryHost, directoryMode, openDirectoryFinding, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook } = useAuthoringDirectory({
+const { directoryHost, directoryMode, openDirectoryFinding, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook, reorderDirectoryChapters } = useAuthoringDirectory({
   hasPendingDraft: () => pendingGhostAdoption.value || blockPreview.value, getSearch: () => searchWorkflow,
+  getChapters: () => chapters.value, setChapters: value => { chapters.value = value }, saveChapters: () => saveChapters(),
   bookId: () => selectedBookId.value, chapterId: () => selectedChapterId.value, ideaId: () => wt3ActiveDocId.value,
   saveIdea: () => wt3PersistActiveDoc(), saveChapter: () => saveCurrentChapter(), leaveIdea: () => wt3PersistBeforeLeaving(),
   createChapter: () => createNewChapter(), createIdea: () => wt3QuickCapture(), book: () => currentBook.value, refreshWorldbook: () => refreshBoundWorldbookAfterCharacterChange()
@@ -1572,7 +1578,6 @@ const AuthoringIdeaShelf = defineAsyncComponent(() => import('../components/auth
 const AuthoringNotesExtractionPreview = defineAsyncComponent(() => import('../components/authoring/AuthoringNotesExtractionPreview.vue'))
 const AuthoringInspectorDetail = defineAsyncComponent(() => import('../components/authoring/AuthoringInspectorDetail.vue'))
 const AuthoringRehearsalScene = defineAsyncComponent(() => import('../components/authoring/AuthoringRehearsalScene.vue'))
-const AuthoringAgentProposalReview = defineAsyncComponent(() => import('../components/authoring/AuthoringAgentProposalReview.vue'))
 const AuthoringOutlinePanel = defineAsyncComponent(() => import('../components/authoring/AuthoringOutlinePanel.vue'))
 const AuthoringManuscriptImport = defineAsyncComponent(() => import('../components/authoring/AuthoringManuscriptImport.vue'))
 const AuthoringFirstRunPath = defineAsyncComponent(() => import('../components/authoring/AuthoringFirstRunPath.vue'))
@@ -1705,7 +1710,7 @@ import {
   resolveSelectionActionPosition,
   resolveWritingAnnotation
 } from '../services/writing/writingAnnotations.js'
-import { getWritingDocumentMarkdown, getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
+import { getChapterMarkdown, getWritingDocumentMarkdown, getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import {
   buildBookManuscriptExport,
   buildChapterManuscriptExport
@@ -1784,6 +1789,7 @@ import {
   useAuthoringAnnotationSelection,
   useAuthoringAnnotationLayout,
   useAuthoringBookActivation,
+  useChapterCore,
   useAuthoringKnowledgeAssistant, createAuthoringStoryAgent,
   useAuthoringIllustrator,
   useBodyScrollLock,
@@ -1872,6 +1878,8 @@ const lastSceneAnchorUndoReceipt = shallowRef(null)
 const editorContent = ref('')
 const showNewBookModal = ref(false)
 const showManuscriptImport = ref(false)
+// 'book'：新建一本书；'chapters'：把选中的作品/文件导进当前作品当章节。
+const manuscriptImportTarget = ref('book')
 const manuscriptImportReturnFocus = shallowRef(null)
 const newBookTitle = ref('')
 const newBookLanguage = ref('')
@@ -1997,14 +2005,14 @@ const wt3IdeaShelfDocs = computed(() => wt3ExplorationDocs.value.map((doc) => {
 }))
 const chapterRowLabel = (index, title) => writingChapterRowLabel(index, title, uiLocale.value)
 const chapterRowParts = (index, title) => writingChapterRowParts(index, title, uiLocale.value)
-// 稿面标题与左导航共用同一序号来源：稿面只补“第X章”，章名仍由输入框承载。
-// 作者标题已自带序号时不再重复显示（避免“第一章 第一章 上元夜”）。
-const selectedChapterOrdinalLabel = computed(() => {
-  const index = chapters.value.findIndex((chapter) => String(chapter.id) === String(selectedChapterId.value))
-  if (index < 0) return ''
-  if (/^(?:chapter\s+(?:\d+|[ivxlcdm]+)\b|prologue$|epilogue$)/i.test(String(currentChapterTitle.value || '').trim())) return ''
-  if (/^第\s*[零〇一二三四五六七八九十百千万两0-9]+\s*章/u.test(String(currentChapterTitle.value || '').trim())) return ''
-  return uiLocale.value === 'en' ? `Chapter ${index + 1}` : `第${chineseChapterNumber(index + 1)}章`
+// 整个章标题都是可编辑文本；旧的空章名以目录序号提供初始显示。
+const editableChapterTitle = computed({
+  get() {
+    if (currentChapterTitle.value) return currentChapterTitle.value
+    const index = chapters.value.findIndex(chapter => String(chapter.id) === String(selectedChapterId.value))
+    return index < 0 ? '' : uiLocale.value === 'en' ? `Chapter ${index + 1}` : `第${chineseChapterNumber(index + 1)}章`
+  },
+  set(value) { currentChapterTitle.value = value }
 })
 watch([selectedBookId, books], () => {
   const bookId = String(selectedBookId.value || '')
@@ -3579,8 +3587,8 @@ const assistantPendingTools = computed(() => {
 })
 function locateAssistantProposal(change) {
   if (!change) return
+  if (assistantWorkspace.expanded.value) void assistantWorkspace.leave({ restore: false })
   if (change.kind === 'chapter') {
-    if (assistantWorkspace.expanded.value) void assistantWorkspace.leave({ restore: false })
     if (chapters.value.some(chapter => String(chapter.id) === change.targetId)) selectChapter(change.targetId)
     // Keep the conversation visible while reviewing the manuscript.
     openInspectorTool('ai')
@@ -7170,7 +7178,7 @@ onMounted(() => {
   }
   loadBooks()
   const startIntent = String(route.query.start || '')
-  if (startIntent === 'import') openManuscriptImport({ clearRouteIntent: true })
+  if (startIntent === 'import') manuscriptImport.openBook({ clearRouteIntent: true })
   else if (startIntent === 'new') createNewBook({ clearRouteIntent: true })
   void worldStore.loadWorldbooksIndex()
   refreshAssetInbox()
@@ -8243,6 +8251,29 @@ const {
   markSaved: () => { saveStatus.value = 'saved' },
   notify: (message) => authoringTask.notify(message)
 })
+const chapterCore = useChapterCore({ books, chapters, saveBooks })
+
+const manuscriptImport = useManuscriptImport({
+  show: showManuscriptImport, target: manuscriptImportTarget, returnFocus: manuscriptImportReturnFocus,
+  books, chapters, chapterCore, currentBook, bookId: selectedBookId, author: authoringTask, route, router,
+  selectBook, selectChapter, saveBooks, blocked: () => pendingGhostAdoption.value || Boolean(wt3ActiveDoc.value)
+})
+/** 内联改写卡片的「采用/拒绝」：失败要说人话，并把面板打开（原因多半落在面板里）。 */
+async function applyInlineAssistantChange(event) {
+  if (await knowledgeAssistant.applyAgentProposal({ discard: event?.action === 'discard', changeIds: [event?.changeId] })) return true
+  const reason = String(knowledgeAssistant.error.value || '')
+  assistantWorkspace.enter()
+  authoringTask.notify(reason || tr('这处改动暂时处理不了：助手还在生成，或这处文字已经变了。'))
+  return false
+}
+function quoteSelectionToAssistant() {
+  hideSelectionActions()
+  const snapshot = getWritingSelectionSnapshot()
+  const result = knowledgeAssistant.quoteSelectionAsReference({ text: snapshot?.text || selectedText.value, sourceRef: activeDocumentSourceRef(), documentId: wt3ActiveDoc.value?.id || selectedChapterId.value || '', label: wt3ActiveDoc.value?.title || currentChapterTitle.value || tr('正文'), locator: snapshot?.start === undefined ? '' : `${snapshot.start}-${snapshot.end}` })
+  if (!result.ok) { authoringTask.notify(result.reason === 'too-many-refs' ? tr('引用最多 8 条，先移除一条再引用') : tr('没有选中文字')); return }
+  assistantWorkspace.enter()
+  authoringTask.notify(tr('已把选段引用到助手'))
+}
 function selectChapter(chapterId) {
   if (pendingGhostAdoption.value) {
     authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
@@ -8253,6 +8284,7 @@ function selectChapter(chapterId) {
     return false
   }
   // Phase 1：离开探索文档先持久化（含批注），再进入章节管线。
+  if (!chapterCore.readChapter(selectedBookId.value, chapterId).ok) return false
   const chapter = chapters.value.find((item) => item.id === chapterId)
   if (!chapter) return false
   if (wt3ActiveDoc.value && !wt3PersistBeforeLeaving()?.ok) return false
@@ -8319,43 +8351,6 @@ function createNewBook({ clearRouteIntent = false } = {}) {
   const query = { ...route.query }
   delete query.start
   void router.replace({ name: 'authoring', query })
-}
-function openManuscriptImport({ clearRouteIntent = false } = {}) {
-  if (!showManuscriptImport.value) manuscriptImportReturnFocus.value = document.activeElement
-  showManuscriptImport.value = true
-  if (!clearRouteIntent || String(route.query.start || '') !== 'import') return
-  const query = { ...route.query }
-  delete query.start
-  void router.replace({ name: 'authoring', query })
-}
-function closeManuscriptImport() {
-  showManuscriptImport.value = false
-  const returnTarget = manuscriptImportReturnFocus.value
-  manuscriptImportReturnFocus.value = null
-  nextTick(() => {
-    if (returnTarget?.isConnected) returnTarget.focus()
-  })
-}
-function confirmManuscriptImport(book, respond = null) {
-  if (!book?.id || !Array.isArray(book.chapters) || !book.chapters.length) {
-    authoringTask.notify(tr('书稿结构无效，未执行导入'))
-    respond?.(false)
-    return false
-  }
-  const previousBooks = books.value
-  books.value = [...books.value, book]
-  if (!saveBooks()) {
-    books.value = previousBooks
-    authoringTask.notify(tr('导入未能保存，请检查浏览器存储空间'))
-    respond?.(false)
-    return false
-  }
-  showManuscriptImport.value = false
-  manuscriptImportReturnFocus.value = null
-  selectBook(book.id)
-  authoringTask.notify(tr('已导入《{value0}》· {value1} 章', { value0: book.title, value1: book.chapters.length }))
-  respond?.(true)
-  return true
 }
 function confirmCreateBook() {
   if (!newBookTitle.value.trim() && !assistantWorkspace.newBookWithAssistant.value) return
@@ -8468,40 +8463,38 @@ async function confirmBindingSelect() {
   }
   bindingSelectOpen.value = false
 }
-function createNewChapter() {
+async function createNewChapter() {
   if (!selectedBookId.value || pendingGhostAdoption.value || wt3ActiveDoc.value) return false
-  const newChapter = {
-    id: Date.now().toString(),
-    title: '',
-    content: '',
-    contentFormat: 'md',
-    outlineItems: [],
-    wordCount: 0,
-    createdAt: new Date().toISOString()
-  }
-  chapters.value.push(newChapter)
-  if (!saveChapters()) {
-    chapters.value.pop()
+  const created = await chapterCore.createChapter(selectedBookId.value)
+  if (!created.ok) {
     authoringTask.notify(tr('新章节保存失败，请检查存储空间'))
     return false
   }
-  return selectChapter(newChapter.id)
+  return selectChapter(created.value.id)
+}
+async function deleteDirectoryChapters(ids) {
+  if (!prepareDirectoryOpen()) return false
+  const ordered = [...ids.filter(id => String(id) !== String(selectedChapterId.value)), ...ids.filter(id => String(id) === String(selectedChapterId.value))]
+  for (const id of ordered) if (!deleteChapter(id)) return false
+  return true
 }
 function deleteChapter(chapterId) {
   if (pendingGhostAdoption.value || wt3ActiveDoc.value) return false
-  const previous = chapters.value
-  const next = previous.filter((chapter) => chapter.id !== chapterId)
-  if (next.length === previous.length) return false
-  chapters.value = next
-  if (!saveChapters()) {
-    chapters.value = previous
+  const chapter = chapters.value.find((item) => String(item.id) === String(chapterId))
+  if (!chapter) return false
+  const removed = chapterCore.removeChapter({
+    bookId: selectedBookId.value,
+    chapterId,
+    expectedRevision: chapterCore.revisionOf(chapter)
+  })
+  if (!removed) {
     authoringTask.notify(tr('删除章节失败，正文未变更'))
     return false
   }
   authoringHistory.removeChapter(chapterId)
   if (selectedChapterId.value === chapterId) {
     selectedChapterId.value = null
-    if (next[0]) selectChapter(next[0].id)
+    if (chapters.value[0]) selectChapter(chapters.value[0].id)
     else {
       currentChapterTitle.value = ''
       editorContent.value = ''
@@ -8526,6 +8519,7 @@ function saveDualChapter({ chapterId = '', title = '', markdown = '', document =
   const chapter = chapters.value.find((item) => String(item?.id) === String(chapterId))
   if (!chapter || !document) return false
   const previous = {
+    revision: chapter.revision,
     title: chapter.title,
     content: chapter.content,
     contentFormat: chapter.contentFormat,
@@ -8534,6 +8528,8 @@ function saveDualChapter({ chapterId = '', title = '', markdown = '', document =
     wordCount: chapter.wordCount,
     updatedAt: chapter.updatedAt
   }
+  const expectedRevision = chapterCore.revisionOf(chapter)
+  chapter.revision = expectedRevision
   const clonedDocument = JSON.parse(JSON.stringify(document))
   chapter.title = String(title || chapter.title || '')
   chapter.content = String(markdown || '')
@@ -8542,7 +8538,11 @@ function saveDualChapter({ chapterId = '', title = '', markdown = '', document =
   chapter.editorDocumentSchemaVersion = Number(clonedDocument.schemaVersion || 3)
   chapter.wordCount = Number(nextWordCount || 0)
   chapter.updatedAt = new Date().toISOString()
-  if (!saveChapters()) {
+  if (!chapterCore.saveChapter({
+    bookId: selectedBookId.value,
+    chapter,
+    expectedRevision
+  })) {
     Object.assign(chapter, previous)
     return false
   }
@@ -8818,6 +8818,7 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
   const chapter = chapters.value.find(c => c.id === selectedChapterId.value)
   if (!chapter) return false
   const chapterBeforeSave = {
+    revision: chapter.revision,
     title: chapter.title,
     editorDocument: chapter.editorDocument,
     editorDocumentSchemaVersion: chapter.editorDocumentSchemaVersion,
@@ -8829,6 +8830,9 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
     wordCount: chapter.wordCount,
     updatedAt: chapter.updatedAt
   }
+  const expectedRevision = chapterCore.revisionOf(chapter)
+  // 页面保存中会重建 editorDocument；先钉住 Core 的并发基准，避免冲突判断失效。
+  chapter.revision = expectedRevision
   const book = books.value.find((item) => item.id === selectedBookId.value)
   const previousBookUpdatedAt = book?.updatedAt
   const previousDocument = chapter.editorDocument || null
@@ -8846,12 +8850,12 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
   chapter.sceneAnchors = normalizeSceneAnchors(sceneAnchors.value)
   chapter.wordCount = wordCount.value
   chapter.updatedAt = new Date().toISOString()
-  const saved = preservePageOutline ? (() => {
-    if (!book) return false
-    book.chapters = chapters.value
-    book.updatedAt = new Date().toISOString()
-    return saveBooks({ preserveOutlineBookId: selectedBookId.value })
-  })() : saveChapters()
+  const saved = chapterCore.saveChapter({
+    bookId: selectedBookId.value,
+    chapter,
+    expectedRevision,
+    preservePageOutline
+  })
   if (!saved) {
     Object.assign(chapter, chapterBeforeSave)
     if (book) book.updatedAt = previousBookUpdatedAt
@@ -10212,6 +10216,7 @@ function captureSelectionFromMenu() {
   hideSelectionActions()
   captureSelectionAsAsset()
 }
+
 const quickAiRewriteInstructions = {
   'ai-rewrite-previous': '改写上一段，保持事实、视角和人物语气不变，改善句式、节奏与上下文衔接。',
   'ai-expand-previous': '扩写上一段，补足必要动作、感官和因果信息，不添加无依据的新设定，不重复已有描写。',

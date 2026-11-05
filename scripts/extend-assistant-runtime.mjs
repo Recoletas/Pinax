@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 const root = path.resolve(import.meta.dirname, '..')
-export const assistantRuntimeFiles = ['runtime-extensions/assistantSession.js', 'runtime-extensions/assistantContinuation.js', 'shared/assistantEntryDetails.js', 'shared/assistantWritingMethods.js', 'runtime-extensions/assistantMethodTool.js', 'runtime-extensions/assistantManuscriptTool.js', 'runtime-extensions/assistantNarrativeExchange.js', 'runtime-extensions/requestModelTransport.js', 'runtime-extensions/assistantKnowledgeTool.js', 'runtime-extensions/assistantProposalTool.js', 'runtime-extensions/assistantNarrativeTool.js', 'runtime-extensions/assistantObservability.js', 'runtime-extensions/assistantTask.js', 'runtime-extensions/assistantWorkspaceTool.js', 'shared/assistantEditProposal.js', 'shared/assistantPermission.js', 'shared/requestModelConfig.js', 'shared/assistantUserInput.js', 'runtime-extensions/assistantSteering.js']
+export const assistantRuntimeFiles = ['runtime-extensions/assistantCompactionTransport.js', 'shared/assistantErrors.js', 'runtime-extensions/assistantSession.js', 'runtime-extensions/assistantContinuation.js', 'shared/assistantEntryDetails.js', 'shared/assistantWritingMethods.js', 'runtime-extensions/assistantMethodTool.js', 'runtime-extensions/assistantManuscriptTool.js', 'runtime-extensions/assistantNarrativeExchange.js', 'runtime-extensions/requestModelTransport.js', 'runtime-extensions/assistantKnowledgeTool.js', 'runtime-extensions/assistantProposalTool.js', 'runtime-extensions/assistantNarrativeTool.js', 'runtime-extensions/assistantObservability.js', 'runtime-extensions/assistantTask.js', 'runtime-extensions/assistantWorkspaceTool.js', 'shared/assistantEditProposal.js', 'shared/assistantPermission.js', 'shared/requestModelConfig.js', 'shared/assistantUserInput.js', 'runtime-extensions/assistantSteering.js']
 export function extendAssistantRuntime(directory) {
   const target = path.join(directory, 'dist/pinax')
   for (const file of assistantRuntimeFiles) fs.copyFileSync(path.join(root, file), path.join(target, path.basename(file)))
@@ -68,6 +68,8 @@ export function extendAssistantRuntime(directory) {
     ['assistantUserInput: true,', 'assistantSteering: true, assistantUserInput: true,']
   ])
   patch('../llm.js', [
+    ['contextWindow: 128_000,', 'contextWindow: t.contextWindow ?? 128_000,'],
+    ['maxTokens: 16_384,', 'maxTokens: t.maxOutputTokens ?? 16_384,'],
     ['import { createModels,', 'import { withRequestModelTransport } from "./pinax/requestModelTransport.js";\nimport { createModels,'],
     ['return withSystemFolding(models, profile);', 'return withRequestModelTransport(withSystemFolding(models, profile), t);'],
     ['return withSystemFolding(models, profile);', 'return withRequestModelTransport(withSystemFolding(models, profile), t);']

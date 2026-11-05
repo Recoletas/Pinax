@@ -296,9 +296,33 @@ describe('agentContracts', function () {
     const unrelated = JSON.parse(JSON.stringify(shiftedBook)); unrelated.chapters[0].content = '新前文。' + unrelated.chapters[0].content
     expect(applyAssistantProposal(shift, { book: unrelated, worldbook: null }).book.chapters[0].content).toContain('新目标句。')
     const conflicting = JSON.parse(JSON.stringify(shiftedBook)); conflicting.chapters[0].content = conflicting.chapters[0].content.replace('目标句。', '作者改动。')
-    expect(() => applyAssistantProposal(shift, { book: conflicting, worldbook: null })).toThrow('段落')
+    expect(() => applyAssistantProposal(shift, { book: conflicting, worldbook: null })).toThrow('修改原文已变化')
+    const adjacent = JSON.parse(JSON.stringify(shiftedBook)); adjacent.chapters[0].content = adjacent.chapters[0].content.replace('旧前文。', '新前文。')
+    expect(applyAssistantProposal(shift, { book: adjacent, worldbook: null }).book.chapters[0].content).toContain('新目标句。')
+    const repeated = applyAssistantProposal(create, { book: created.book, worldbook: created.worldbook })
+    expect(repeated.changes).toEqual([])
+    const { previewAssistantConflict, resolveAssistantConflicts, reconsiderDiscardedAssistantChanges } = await import('../services/agents/storyagent/assistantEditConflict.js')
+    const ignored = { ...create, status: 'discarded', changes: create.changes.map(change => ({ ...change, status: 'discarded' })) }
+    const current = JSON.parse(JSON.stringify(created.worldbook)); current.entries[0].content = '作者已补充的船员资料。'
+    const conflictContext = { book: created.book, worldbook: current }
+    const preview = previewAssistantConflict(ignored.changes[0], conflictContext)
+    const ids = [ignored.changes[0].changeId]
+    const reopened = reconsiderDiscardedAssistantChanges(ignored, ids)
+    const resolutions = [{ changeId: ids[0], expected: preview.expected, after: '作者确认的合并资料。' }]
+    const resolved = resolveAssistantConflicts(reopened, resolutions, conflictContext, ids)
+    const committed = applyAssistantProposal(resolved, { ...conflictContext, changeIds: ids })
+    expect(committed.worldbook.entries[0].content).toBe('作者确认的合并资料。')
+    expect(committed.changes[0].baseline).toBe('作者已补充的船员资料。')
+    current.entries[0].content = '对比后又改了。'
+    expect(() => resolveAssistantConflicts(reopened, resolutions, conflictContext, ids)).toThrow('又发生了变化')
+    const { assistantConversationWorkingSet } = await import('../services/agents/authoring/assistantEditReviewState.js')
+    const messages = [{ id: 'saved', proposal: { ...create, status: 'adopted', changes: created.proposalChanges } }, { id: 'ignored', proposal: { ...ignored, id: 'ignored-proposal' } }]
+    expect(assistantConversationWorkingSet(messages)).toEqual([])
+    expect(assistantConversationWorkingSet([{ id: 'completed', proposal: { ...create, reviewStatus: 'completed' } }])).toEqual([])
     const grouped = { ...multi, changes: multi.changes.map(change => ({ ...change, groupId: 'atomic' })) }
-    expect(applyAssistantProposal(grouped, { book: longBook, worldbook: null, changeIds: ['change-1'] }).status).toBe('adopted')
+    const singleSelection = applyAssistantProposal(grouped, { book: longBook, worldbook: null, changeIds: ['change-1'] })
+    expect(singleSelection.status).toBe('partial')
+    expect(singleSelection.proposalChanges.map(change => change.status)).toEqual(['adopted', 'pending', 'pending'])
     expect(applyAssistantProposal(multi, { book: longBook, worldbook: null, discard: true, changeIds: ['change-2'] }).proposalChanges[1].status).toBe('discarded')
 
     }

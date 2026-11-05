@@ -82,4 +82,27 @@ try { svc.browseDirectories('relative/path') } catch (e) { browseErr = e.code }
 check('相对路径 → ERR_INVALID_INPUT', browseErr === 'ERR_INVALID_INPUT')
 fsMod.rmSync(projRoot, { recursive: true, force: true })
 
+console.log('[6] 章节出口：collectFolderChapters（与建书同一套分类与解析）')
+const textEntry = (path, text) => ({
+  path,
+  name: path.split('/').at(-1),
+  size: text.length,
+  depth: path.split('/').length - 1,
+  file: () => ({ arrayBuffer: async () => new TextEncoder().encode(text).buffer })
+})
+const { collectFolderChapters } = await import('../src/services/import/importPipeline.js')
+const collected = await collectFolderChapters({
+  folderName: '测试作品',
+  entries: [
+    textEntry('第一章 潮声.md', '# 第一章 潮声\n潮声从远处回来。'),
+    textEntry('第二章 罗盘.md', '# 第二章 罗盘\n罗盘指向北。'),
+    textEntry('资料/旧稿.txt', '子目录不算章节。')
+  ]
+})
+check('根目录 md 变成章节清单', collected.ok === true && collected.chapters.length === 2)
+check('章节名取文件名（序号剥除）', collected.chapters[0]?.title === '第一章 潮声' && collected.chapters[0]?.content.includes('潮声从远处回来'))
+check('子目录文件不计入章节', collected.stats?.materialFiles === 1 && collected.stats?.bookFiles === 2)
+const emptyCollected = await collectFolderChapters({ folderName: '只有资料', entries: [textEntry('资料/a.txt', 'x')] })
+check('没有根目录书稿时如实拒绝', emptyCollected.ok === false && emptyCollected.reason === 'no-book-files')
+
 console.log(`local-import-check: ${passed} 项全部通过`)

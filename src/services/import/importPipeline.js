@@ -82,11 +82,11 @@ export function classifyImportEntries(entries) {
 }
 
 /**
- * 文件夹 → 一本书 + 资料归档。
- * bookEntries 根目录 txt/md 合并（文件名=章节名，内容再按章节标题切分）；
- * materialEntries 走世界书源档案解析（txt/md/pdf/docx/epub，IndexedDB 归档）。
+ * 文件夹 → 章节清单（不建书、不归档资料）。
+ * 与 importFolderAsBook 共用同一套分类与解析规则，只是换一个出口：
+ * 「导入书稿」要的是一本书，「导入章节」要的是若干章节。
  */
-export async function importFolderAsBook({ folderName = '', entries, manuscriptLanguage = '', sourceParse = null } = {}) {
+export async function collectFolderChapters({ folderName = '', entries, manuscriptLanguage = '' } = {}) {
   const { bookEntries, materialEntries } = classifyImportEntries(entries)
   if (!bookEntries.length) {
     return { ok: false, reason: 'no-book-files', message: '文件夹根目录没有可作书稿的 .txt/.md 文件。' }
@@ -121,11 +121,28 @@ export async function importFolderAsBook({ folderName = '', entries, manuscriptL
   if (!chapters.length) {
     return { ok: false, reason: 'chapters-required', message: '书稿文件都未能解析出正文。' }
   }
+  return {
+    ok: true,
+    chapters,
+    warnings,
+    stats: { bookFiles: bookEntries.length, materialFiles: materialEntries.length, chapters: chapters.length }
+  }
+}
+
+/**
+ * 文件夹 → 一本书 + 资料归档。
+ * bookEntries 根目录 txt/md 合并（文件名=章节名，内容再按章节标题切分）；
+ * materialEntries 走世界书源档案解析（txt/md/pdf/docx/epub，IndexedDB 归档）。
+ */
+export async function importFolderAsBook({ folderName = '', entries, manuscriptLanguage = '', sourceParse = null } = {}) {
+  const collected = await collectFolderChapters({ folderName, entries, manuscriptLanguage })
+  if (!collected.ok) return collected
+  const { chapters, warnings, stats } = collected
   const created = createImportedWritingBook({ title: String(folderName || '导入书稿').replace(/\.[^.]+$/u, ''), chapters, manuscriptLanguage })
   if (!created.ok) return created
 
   let archivedSources = []
-  const materialFiles = materialEntries.map((entry) => entry.file())
+  const materialFiles = classifyImportEntries(entries).materialEntries.map((entry) => entry.file())
   if (materialFiles.length) {
     try {
       const tools = await loadMaterialTools()
@@ -144,7 +161,7 @@ export async function importFolderAsBook({ folderName = '', entries, manuscriptL
     }
   }
 
-  return { ok: true, book: created.book, archivedSources, warnings, stats: { bookFiles: bookEntries.length, materialFiles: materialEntries.length, chapters: chapters.length } }
+  return { ok: true, book: created.book, archivedSources, warnings, stats }
 }
 
 /** 确认导入后再归档资料（UI 流：选择时只分类，确认才写 IndexedDB）。 */

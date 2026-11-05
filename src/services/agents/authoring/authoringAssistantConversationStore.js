@@ -1,3 +1,4 @@
+import { createAssistantPermissionPreference } from '../../../../shared/assistantPermission.js'
 import { normalizeAssistantSampling } from './assistantRegenerateOptions.js'
 import { normalizeAssistantQuestions } from '../../../../shared/assistantUserInput.js'
 import { createBrowserStorageRepository } from '../../storage/browserStorageRepository.js'
@@ -78,16 +79,26 @@ function storedMessages(messages, projectId, includeVersions = true) {
   })
 }
 
+// Pending edits are work, not expendable recent-history entries.
+export function retainAssistantSessions(sessions) {
+  return sessions.filter((session, index) => index < 20 || (session.messages || []).some(message =>
+    message.proposal && ['pending', 'partial'].includes(message.proposal.status) && message.proposal.changes?.some(change => !change.status || change.status === 'pending')))
+}
+function permissionPreference(input = {}) {
+  input ||= {}
+  return createAssistantPermissionPreference({ mode: input.mode, scope: input.scope, chapterIds: Array.isArray(input.chapterIds) ? input.chapterIds : [] })
+}
+
 function savedConversation(projectId, record) {
   const request = record.lastRequest
   return {
     schemaVersion: SCHEMA_VERSION,
     projectId,
     messages: storedMessages(record.messages, projectId), contextCheckpoint: storedCheckpoint(record.contextCheckpoint), contextCompactedAt: Number(record.contextCompactedAt) || 0, pendingMessages: storedQueue(record.pendingMessages),
-    activeSessionId: String(record.activeSessionId || ''),
-    agentSessions: (Array.isArray(record.agentSessions) ? record.agentSessions : []).filter(session => session.projectId === projectId)
-      .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt)).slice(0, 20).map(session => ({
-        sessionId: String(session.sessionId || ''), projectId, title: String(session.title || '新对话').slice(0, 80), updatedAt: Number(session.updatedAt) || 0, archived: Boolean(session.archived),
+    activeSessionId: String(record.activeSessionId || ''), agentPermission: permissionPreference(record.agentPermission),
+    agentSessions: retainAssistantSessions((Array.isArray(record.agentSessions) ? record.agentSessions : []).filter(session => session.projectId === projectId)
+      .sort((a, b) => Number(b.updatedAt) - Number(a.updatedAt))).map(session => ({
+        sessionId: String(session.sessionId || ''), projectId, agentPermission: permissionPreference(session.agentPermission), title: String(session.title || '新对话').slice(0, 80), updatedAt: Number(session.updatedAt) || 0, archived: Boolean(session.archived),
         messages: storedMessages(session.messages, projectId), contextCheckpoint: storedCheckpoint(session.contextCheckpoint), contextCompactedAt: Number(session.contextCompactedAt) || 0, pendingMessages: storedQueue(session.pendingMessages), draft: String(session.draft || '').slice(0, 12000),
         selectedIntent: String(session.selectedIntent || 'free'), agentRefs: clone((session.agentRefs || []).slice(0, 8).map(ref => ({ id: String(ref.id), type: String(ref.type), title: String(ref.title || '').slice(0, 120) }))), agentTaskId: String(session.agentTaskId || ''), agentSkills: clone((session.agentSkills || []))
       })),

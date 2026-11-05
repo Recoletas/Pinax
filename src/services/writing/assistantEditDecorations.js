@@ -56,6 +56,12 @@ export function createAssistantEditDecorations({ getReview, getDocument, act }) 
           button.addEventListener('click', event => { event.stopPropagation(); act(action, change.changeId) })
           actions.append(button)
         }
+        if (busy) {
+          const hint = document.createElement('span')
+          hint.className = 'assistant-inline-edit__busy'
+          hint.textContent = tr('助手还在生成，完成后才能采用或拒绝')
+          actions.append(hint)
+        }
         const reason = document.createElement('span'); reason.textContent = change.reason; actions.append(reason); widget.append(actions)
         return widget
       }, { key: `${proposal.id}:${change.changeId}:${change.after}:${busy}`, side: 1, stopEvent: () => true, ignoreSelection: true }))

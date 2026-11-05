@@ -34,6 +34,7 @@ function selectChapter(id, selected) {
 </script>
 <template>
   <div class="assistant-permissions" data-test="assistant-permissions">
+    <button type="button" class="assistant-permissions__mode" :disabled="busy" @click="update({ mode: 'auto', scope: 'book' })"><span>{{ tr('全书自动修改，无需逐条确认') }}<small>{{ tr('正文、设定和大纲在授权范围内直接保存') }}</small></span><WorkbenchIcon v-if="policy.mode === 'auto' && policy.scope === 'book'" name="check" :size="15" /></button>
     <small v-if="agentState.permissionPending" class="assistant-permissions__pending" role="status">{{ tr('下次发送生效') }}</small>
     <button v-for="mode in modes" :key="mode.id" class="assistant-permissions__mode" type="button" :aria-pressed="policy.mode === mode.id" :disabled="busy" @click="update({ mode: mode.id })"><span>{{ tr(mode.label) }}<small>{{ tr(mode.detail) }}</small></span><WorkbenchIcon v-if="policy.mode === mode.id" name="check" :size="15" /></button>
     <div v-if="policy.mode !== 'read'" class="assistant-permissions__range" role="group" :aria-label="tr('正文章节范围')">

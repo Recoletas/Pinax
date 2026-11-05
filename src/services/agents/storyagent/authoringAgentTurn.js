@@ -1,3 +1,6 @@
+import { assistantErrorText, isAssistantContextOverflow } from '../../../../shared/assistantErrors.js'
+import { getItem } from '../../../composables/useStorage.js'
+import { preserveAssistantEditDecisions, resolveAssistantEditReview } from '../authoring/assistantEditReviewState.js'
 import { normalizeRequestModelConfig } from '../../../../shared/requestModelConfig.js'
 import { normalizeAssistantQuestions } from '../../../../shared/assistantUserInput.js'
 import { toResolvedTextApiSettings } from '../../textProviderConfigStore.js'
@@ -101,8 +104,27 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
   function retainProposal(changes, { narrativeReceipt, tool } = {}) {
     const work = proposalWork.then(async () => {
       const inputChanges = typeof changes === 'function' ? changes(message.proposal?.changes || []) : changes
-      const proposal = preserveInheritedBaselines(await engine.prepareProposal({ changes: inputChanges }, prepared, message.id), inheritedChanges, inheritedWorldbookId)
-      const previous = message.proposal
+      let proposal = preserveInheritedBaselines(await engine.prepareProposal({ changes: inputChanges }, prepared, message.id), inheritedChanges, inheritedWorldbookId)
+      const previous = resolveAssistantEditReview(message.proposal, id => getItem(`assistant_edit_receipt:${id}`))
+      proposal = preserveAssistantEditDecisions(proposal, previous, editDecisions?.proposals)
+      // Cancelling may drain a late validation callback. Keep decisions already
+      // made by the author instead of resurrecting the same pending changes.
+      if (previous) {
+        proposal.changes = proposal.changes.map(change => {
+          const handled = previous.changes.find(old => sameChange(old, change) && old.after === change.after && ['adopted', 'discarded', 'undone'].includes(old.status))
+          return handled ? { ...handled } : change
+        })
+        if (previous.receipt) proposal.receipt = previous.receipt
+        if (previous.reviewedTargets) proposal.reviewedTargets = previous.reviewedTargets
+        proposal.status = proposal.changes.some(change => !change.status || change.status === 'pending')
+          ? proposal.changes.some(change => change.status === 'adopted') ? 'partial' : 'pending'
+          : proposal.changes.some(change => change.status === 'adopted') ? 'adopted' : 'discarded'
+      }
+      // Includes decisions from earlier messages in this conversation. A new
+      // proposal id must not resurrect the exact edit the author rejected.
+      const pending = proposal.changes.some(change => !change.status || change.status === 'pending')
+      const adopted = proposal.changes.some(change => change.status === 'adopted')
+      proposal.status = pending ? adopted ? 'partial' : 'pending' : adopted ? 'adopted' : 'discarded'
       if (narrativeReceipt) proposal.narrativeReceipt = narrativeReceipt
       else if (previous?.narrativeReceipt && previous.changes.some(change => change.kind === 'chapter' && proposal.changes.some(next => sameChange(change, next) && change.after === next.after))) proposal.narrativeReceipt = previous.narrativeReceipt
       // This completed candidate belongs to its original message, including when
@@ -236,7 +258,22 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
     onComplete: ({ content }) => { if (current()) message.text = streamedAnswer.trim() ? streamedAnswer : String(content || '') }
   }
   try {
-    const result = await (previousTask ? engine.resume({ prepared, text: question, taskId: previousTask, signal, callbacks }) : engine.run({ prepared, text: providerQuestion, taskId: id, signal, callbacks }))
+    let result = await (previousTask ? engine.resume({ prepared, text: question, taskId: previousTask, signal, callbacks }) : engine.run({ prepared, text: providerQuestion, taskId: id, signal, callbacks }))
+    const recoveryTaskId = message.taskId || result?.trace?.taskId
+    if (!result?.ok && isAssistantContextOverflow(result?.error) && recoveryTaskId && engine.compact && current()) {
+      await proposalWork
+      state.compacting = true; persist()
+      try {
+        const compacted = await engine.compact(recoveryTaskId, { bookId: projectId, modelConfig: modelSelection, signal })
+        if (!compacted?.ok) throw new Error(`自动压缩失败：${compacted?.error?.message || compacted?.error || '运行器未返回完成回执。'} 原对话和修改建议已保留。`)
+        if (!current()) return false
+        state.contextCompactedAt = Date.now()
+        // Continue the existing task and its candidate owner, without resending
+        // the original author request or applying any pending edit twice.
+        result = await engine.resume({ prepared, text: '从压缩后的任务进度继续尚未完成的工作；保留已生成候选，不重复提交已有修改。若已完成，直接交付结果。', taskId: recoveryTaskId, signal, callbacks })
+        if (!result?.ok && isAssistantContextOverflow(result?.error)) throw new Error(`自动压缩后继续请求仍超限。原始原因：${result.error?.message || result.error}。已有修改已保留。`)
+      } finally { state.compacting = false; persist() }
+    }
     // Reconcile identified results if the stream omitted their individual callback.
     for (const toolResult of result?.finalToolResults || []) if (toolResult.callId && toolResult.toolName !== 'author_input') callbacks.onToolResult(toolResult)
     await proposalWork
@@ -304,7 +341,7 @@ export async function runAuthoringAgentTurn({ engine, entry, question, providerQ
       message.failureReason ||= ASSISTANT_STOP_MESSAGES[message.stopReason] || ASSISTANT_STOP_MESSAGES.unknown
     } else {
       message.status = 'failed'
-      message.failureReason = String(error.message || '生成中断，文字已保留。')
+      message.failureReason = assistantErrorText(error.message || '生成中断，文字已保留。')
     }
     // Only candidates that completed validation are reviewable. Interrupted
     // generatedText remains chat text and never replaces that last candidate.

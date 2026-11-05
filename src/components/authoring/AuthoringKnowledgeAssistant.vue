@@ -47,19 +47,13 @@
           <div class="authoring-knowledge__answer-meta"><span><WorkbenchIcon name="message-square" :size="16" />{{ tr('助手') }}</span><span v-if="message.usage?.totalTokens" class="authoring-knowledge__answer-tokens" :title="tr('输入 {in} · 输出 {out}', { in: message.usage.inputTokens ?? 0, out: message.usage.outputTokens ?? 0 })">{{ tr('用量 {n}', { n: message.usage.totalTokens }) }}</span><time>{{ formatTime(message.createdAt) }}</time></div>
           <div v-if="message.thinking || message.tools?.length" class="authoring-knowledge__process">
           <details v-if="message.thinking" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('思考过程') }}</summary><p>{{ message.thinking }}</p></details>
-          <details v-if="message.tools?.length" class="authoring-knowledge__agent-detail"><summary><WorkbenchIcon name="chevron-down" :size="12" />{{ tr('已使用 {count} 次工具', { count: message.tools.length }) }}</summary><details v-for="(tool, index) in message.tools" :key="tool.callId || index" class="assistant-tool-call"><summary><WorkbenchIcon name="chevron-down" :size="12" /><span>{{ toolLabel(tool.name) }}</span><span v-if="tool.status === 'completed'" class="authoring-knowledge__tool-outcome" role="img" :title="tr('已完成')" :aria-label="tr('已完成')"><WorkbenchIcon name="check" :size="12" /></span><span v-else class="authoring-knowledge__tool-outcome" :title="tool.error">{{ toolStatusLabel(tool, message) }}</span></summary><pre v-if="tool.input">{{ JSON.stringify(tool.input, null, 2) }}</pre><p v-if="tool.error">{{ tool.error }}</p></details></details>
+          <AssistantToolActivity :tools="message.tools || []" :status="message.status" />
           </div>
           <AssistantUserInput v-if="message.questions?.length && !message.questionResponse && messages.at(-1)?.id === message.id" :key="message.id" :questions="message.questions" :busy="busy || agentState.adoptionBusy" @answer="assistant?.answerQuestions(message.id, $event)" />
           <div v-else class="authoring-knowledge__answer-text authoring-knowledge__markdown" v-html="renderAssistantAnswer(visibleAgentText(message))" />
-          <section v-if="message.references?.length" class="authoring-knowledge__evidence" :aria-label="tr('本轮检索片段')">
-            <div class="authoring-knowledge__evidence-list"><button v-for="source in message.references" :key="source.sourceRef" type="button" :title="tr('生成时的资料片段，资料更新后请重新检索')" @click="onEvidenceClick(source, $event.currentTarget)"><WorkbenchIcon name="document" :size="14" /><span>{{ source.label }}</span></button></div>
-          </section>
-          <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status)" class="authoring-knowledge__stale">{{ tr(message.failureReason || (message.status === 'failed' ? '生成中断，文字已保留。可以复制或重试。' : '生成已停止，文字已保留。')) }}</p>
-          <div v-if="canReviewProposal(message) || canUndoMessage(message)" class="authoring-knowledge__edit-actions">
-            <button v-if="canAdoptSettingsProposal(message)" type="button" class="authoring-knowledge__agent-adopt is-primary" :disabled="busy || agentState.adoptionBusy" @click="assistant.adoptSettingsProposal(message.id)"><WorkbenchIcon name="check" :size="14" /><span>{{ tr('全部采纳设定') }}</span></button>
-            <button v-if="canReviewProposal(message)" type="button" class="authoring-knowledge__agent-adopt" :disabled="agentState.adoptionBusy" @click="assistant.reviewProposal(message.id)"><WorkbenchIcon name="writing" :size="14" /><span>{{ tr(message.proposal.status === 'adopted' ? '查看已采用的修改' : '查看修改建议') }}</span></button>
-            <button v-if="canUndoMessage(message)" type="button" class="authoring-knowledge__agent-adopt is-quiet" :aria-label="tr('撤销本次修改')" v-workbench-tooltip="tr('撤销本次修改')" :disabled="busy || agentState.adoptionBusy" @click="assistant.undoAgentProposal(message.id)"><WorkbenchIcon name="undo-extension" :size="14" /><span>{{ tr('撤销') }}</span></button>
-          </div>
+          <AssistantSourceList :sources="message.references || []" @open="onEvidenceClick" />
+          <p v-if="['cancelled', 'interrupted', 'failed'].includes(message.status) && (!error || assistantErrorText(message.failureReason) !== assistantErrorText(error))" class="authoring-knowledge__stale">{{ tr(assistantErrorText(message.failureReason) || (message.status === 'failed' ? '生成中断，文字已保留。可以复制或重试。' : '生成已停止，文字已保留。')) }}</p>
+
           <AssistantMessageActions v-if="message.status !== 'running'" :message="message" :messages="messages" :assistant="assistant" :busy="busy || agentState.adoptionBusy" :copied="copiedAnswerId === message.id" @copy="copyAnswer(message)" @continue="continueFromAnswer(message)" />
         </article>
         <article v-else-if="message.answer" class="authoring-knowledge__answer">
@@ -109,11 +103,12 @@
         <span>{{ notice.text }}</span><small v-if="notice.reviewable">{{ tr('查看') }}</small>
       </button>
       <div v-if="error" class="authoring-knowledge__error" role="alert">
-        <span>{{ tr(error) }}</span><button v-if="!assistant || unref(assistant.lastRequest)" type="button" @click="$emit('retry')">{{ tr('重试') }}</button>
+        <span>{{ tr(assistantErrorText(error)) }}</span><button v-if="!assistant || unref(assistant.lastRequest)" type="button" :disabled="busy || agentState.adoptionBusy" @click="$emit('retry')">{{ tr('重试') }}</button><details v-if="isAssistantContextOverflow(error)"><summary>{{ tr('错误详情') }}</summary><p>{{ error }}</p></details>
       </div>
       <p v-if="persistenceError" class="authoring-knowledge__persistence-error" role="alert">{{ tr(persistenceError) }}</p>
     </div>
 
+    <AssistantChangesDiff v-if="editProposals.length || pendingActionError" :proposals="editProposals" :busy="busy || agentState.adoptionBusy" :working="pendingActionBusy" :error="pendingActionError" :notice="pendingActionNotice" @adopt="applyAllEdits($event)" @undo="applyAllEdits({ ...$event, undo: true })" @keep="applyAllEdits({ ...$event, discard: true })" @resolve="resolveEditConflict($event)" />
     <footer class="authoring-knowledge__composer">
       <AssistantMessageQueue :items="unref(assistant?.pendingMessages) || []" :busy="busy" :has-draft="!!draft.trim()" @edit="editQueuedMessage" @remove="assistant?.removeQueuedMessage($event)" @resume="assistant?.resumeQueuedMessages()" />
       <div v-if="documentTitle" class="assistant-document-context"><WorkbenchIcon name="chapter" :size="14" /><button type="button" :title="tr('返回当前文稿')" @click="$emit('direct-writing')">{{ documentTitle }}</button></div>
@@ -172,6 +167,12 @@
 <script setup>
 import AuthoringAssistantModel from './AuthoringAssistantModel.vue'
 import AssistantMessageQueue from './AssistantMessageQueue.vue'
+import AssistantChangesDiff from './AssistantChangesDiff.vue'
+import { assistantChangeGroup } from '../../services/agents/authoring/assistantChangeDiff.js'
+import { getItem } from '../../composables/useStorage.js'
+import { pendingAssistantEdit, assistantConversationWorkingSet, assistantEditActionGroups } from '../../services/agents/authoring/assistantEditReviewState.js'
+import AssistantToolActivity from './AssistantToolActivity.vue'
+import AssistantSourceList from './AssistantSourceList.vue'
 import AuthoringAssistantPermissions from './AuthoringAssistantPermissions.vue'
 import AssistantUserInput from './AssistantUserInput.vue'
 import AssistantMessageActions from './AssistantMessageActions.vue'
@@ -185,6 +186,7 @@ import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 import { marked } from 'marked'
 import { sanitizeHtml } from '../../utils/sanitize.js'
+import { assistantErrorText, isAssistantContextOverflow } from '../../../shared/assistantErrors.js'
 
 function visibleAgentText(message) {
   const draft = message.status === 'running' && message.generatedDrafts?.findLast(item => item.status === 'generating')?.text
@@ -534,6 +536,96 @@ function acceptInputCandidate() {
   nextTick(() => { const input = draftInputRef.value; input?.focus({ preventScroll: true }); input?.setSelectionRange(input.value.length, input.value.length) })
 }
 watch(inputCandidate, () => nextTick(fitDraft))
+const editReceiptRevision = ref(0)
+const editProposals = computed(() => {
+  void editReceiptRevision.value
+  // Read receipts for active messages only. Retained pre-HMR controllers may
+  // still expose an old cross-conversation aggregate: do not use it here.
+  return assistantConversationWorkingSet(props.messages, id => getItem(`assistant_edit_receipt:${id}`))
+})
+const pendingActionBusy = ref(false)
+const pendingActionError = ref('')
+const pendingActionNotice = ref('')
+async function resolveEditConflict({ proposalId, changeIds, acknowledge }) {
+  if (pendingActionBusy.value || props.busy || props.agentState.adoptionBusy) return
+  const assistant = props.assistant, projectId = props.projectId
+  const proposal = editProposals.value.find(item => item.id === proposalId)
+  if (!proposal) return
+  const preference = JSON.parse(JSON.stringify(props.agentState.permission || {}))
+  pendingActionBusy.value = true; pendingActionError.value = ''; pendingActionNotice.value = ''
+  try {
+    if (!assistant.reviewProposal(proposal.messageId, { locate: false })) throw new Error(unref(assistant.error) || '找不到建议，未写入修改。')
+    if (!await assistant.setAgentPermission(preference)) throw new Error(unref(assistant.error) || '授权未完成，未写入修改。')
+    if (props.projectId !== projectId) return
+    const ok = await assistant.applyAgentProposal({ permission: preference, changeIds, acknowledge })
+    if (props.projectId !== projectId) return
+    if (!ok) pendingActionError.value = unref(assistant.error) || '未保存，请重新读取对比。'
+    else pendingActionNotice.value = acknowledge.resolutions.every(item => item.after === item.expected.text) ? '已确认保留当前版本。' : '已保存你确认的版本，可撤销本次修改。'
+  } catch (error) {
+    if (props.projectId === projectId) pendingActionError.value = error.message || '未保存，建议已保留。'
+  } finally { editReceiptRevision.value++; pendingActionBusy.value = false }
+}
+async function applyAllEdits({ undo = false, discard = false, group = '全部', proposalId = null, changeIds = null, selections = null } = {}) {
+  if (pendingActionBusy.value || props.busy || props.agentState.adoptionBusy) return
+  const assistant = props.assistant, projectId = props.projectId
+  const originalSession = unref(assistant?.sessions)?.find(session => session.active)?.sessionId
+  const preference = JSON.parse(JSON.stringify(props.agentState.permission || {}))
+  pendingActionBusy.value = true; pendingActionError.value = ''; pendingActionNotice.value = ''
+  let compatibility = false
+  try {
+    let ok
+    // Keep the action planner in the live component: retained session controllers
+    // can outlive HMR and otherwise keep an obsolete batch implementation.
+    {
+      // Retained live controllers keep their existing API until the task ends.
+      compatibility = true
+      const proposals = editProposals.value.filter(proposal => !proposalId || proposal.id === proposalId)
+      if (undo) proposals.sort((a, b) => (b.receipt?.adoptedAt || 0) - (a.receipt?.adoptedAt || 0))
+      ok = true
+      const failures = []
+      for (const proposal of proposals) {
+        const matches = change => (group === '全部' || assistantChangeGroup(change) === group) && (!changeIds || changeIds.includes(change.changeId)) && (!selections || selections.some(item => item.proposalId === proposal.id && item.changeIds.includes(change.changeId)))
+        const pendingIds = proposal.changes.filter(change => pendingAssistantEdit(proposal, change) && matches(change)).map(change => change.changeId)
+        const adoptedIds = (proposal.receipt?.changes || []).filter(matches).map(change => change.changeId)
+        const actions = [...(undo && adoptedIds.length ? [{ undo: true, changeIds: adoptedIds }] : []), ...assistantEditActionGroups(proposal, pendingIds).map(changeIds => ({ discard: undo || discard, changeIds }))]
+        for (const action of actions) {
+          if (props.projectId !== projectId) return
+          if (!assistant?.reviewProposal?.(proposal.messageId, { locate: false })) { failures.push('无法打开建议，记录已保留。'); continue }
+          if (!undo && !discard && !await assistant.setAgentPermission(preference)) { failures.push(unref(assistant?.error) || '授权失败，未写入修改。'); break }
+          if (!await assistant.applyAgentProposal({ ...action, permission: preference })) failures.push(unref(assistant?.error) || '修改冲突，建议已保留。')
+        }
+      }
+      // Completing the whole review persists a terminal decision, rather than
+      // setting a component visibility flag. Receipts remain as history.
+      if (!failures.length && group === '全部' && !proposalId && !changeIds && !selections) {
+        for (const proposal of proposals) {
+          if (props.projectId !== projectId) return
+          if (!assistant.reviewProposal(proposal.messageId, { locate: false }) || !await assistant.applyAgentProposal({ acknowledge: { action: 'finish-review' } })) {
+            failures.push(unref(assistant.error) || '审阅结果尚未归档，请重试。')
+          }
+        }
+      }
+      ok = failures.length === 0
+      if (!ok) pendingActionError.value = `${failures.length} 组未处理，其他条目已继续处理。${[...new Set(failures)].join('；')}`
+    }
+    if (props.projectId !== projectId) return
+    if (!ok) pendingActionError.value ||= unref(assistant?.error) || (undo ? '部分修改未撤销，原记录已保留。' : '部分修改未采纳，剩余建议已保留。')
+    else if (discard) pendingActionNotice.value = '已保留现有内容，所选建议已忽略。'
+    else pendingActionNotice.value = selections || proposalId || changeIds ? (undo ? '已撤销所选修改。' : '已采纳所选修改。') : group === '全部' ? (undo ? '已撤销全部修改。' : '已采纳全部修改。') : tr(undo ? '已撤销{group}修改。' : '已采纳{group}修改。', { group: tr(group) })
+  } catch (error) {
+    if (props.projectId === projectId) pendingActionError.value = error.message || '操作未完成，修改记录已保留。'
+  } finally {
+    try {
+      if (compatibility && props.projectId === projectId) {
+        if (originalSession) assistant.selectSession?.(originalSession)
+        await assistant.setAgentPermission?.(preference)
+      }
+    } catch (error) {
+      if (props.projectId === projectId) pendingActionError.value ||= error.message || '会话权限恢复失败，请查看当前权限。'
+    } finally { editReceiptRevision.value++; pendingActionBusy.value = false }
+  }
+}
+watch(() => props.projectId, () => { pendingActionError.value = ''; pendingActionNotice.value = '' })
 const permissionLabel = computed(() => ({ read: '只读', review: '审阅修改', auto: '自动修改' })[props.agentState.permission?.mode] || '审阅修改')
 const permissionScopeLabel = computed(() => { const policy = props.agentState.permission || {}; return policy.scope === 'book' ? '全部章节' : (!policy.scope || policy.scope === 'current') ? '当前章节' : '自定义' })
 const discussing = computed(() => props.selectedIntent === 'free')
@@ -565,28 +657,6 @@ const visibleMessages = computed(() => {
     .some((value) => String(value).toLocaleLowerCase('zh-CN').includes(query)))
 })
 
-function canReviewProposal(message) {
-  return Boolean(message.proposal?.changes?.length && ['running', 'completed', 'cancelled', 'interrupted', 'failed'].includes(message.status))
-}
-function canAdoptSettingsProposal(message) {
-  const proposal = canReviewProposal(message) ? message.proposal : null
-  return Boolean(
-    proposal && ['pending', 'partial'].includes(proposal.status) &&
-    proposal.changes?.length &&
-    proposal.changes.every((change) => change.kind === 'worldbook') &&
-    proposal.changes.some((change) => !change.status || change.status === 'pending')
-  )
-}
-function canUndoMessage(message) { return Boolean(message.proposal?.receipt?.changes?.length) }
-function toolLabel(name) { return tr(({ writing_methods: '查阅写作方法', knowledge: '检索知识库', generate_narrative_draft: '推演写作', workspace: '查阅作品目录', manuscript_search: '检索正文', manuscript_get: '读取章节', world_lookup: '查阅设定', notes_search: '检索构思', outline_lookup: '查阅大纲', calc_evaluate: '复算数值', submit_narrative_beat_plan: '规划场景', submit_edit_proposals: '整理修改建议', request_user_input: '询问作者', complete_assistant_task: '交付本轮结果' })[name] || name) }
-function toolStatusLabel(tool, message) {
-  if (tool.status === 'failed') {
-    const reason = String(tool.error || '').trim().split('\n')[0]
-    return reason ? reason.slice(0, 48) + (reason.length > 48 ? '…' : '') : tr('未成功执行')
-  }
-  if (tool.status === 'cancelled' || (tool.status === 'running' && message.status === 'cancelled')) return tr('已取消')
-  return tr(tool.status === 'running' && message.status === 'running' ? '进行中' : '未收到结果')
-}
 function formatTime(value) {
   const date = new Date(Number(value) || Date.now())
   return date.toLocaleTimeString(uiLocale.value, { hour: '2-digit', minute: '2-digit', hour12: false })

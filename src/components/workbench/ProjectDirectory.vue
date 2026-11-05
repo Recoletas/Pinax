@@ -6,13 +6,13 @@ import { tr } from '../../i18n/index.js'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import { createDirectory, readDirectory, saveDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX } from '../../services/workspace/projectDirectory.js'
 import { listNarrativeAssets, subscribeNarrativeAssets } from '../../services/media/narrativeAssets.js'
-import { writingChapterRowLabel } from '../../services/writing/writingChapterLabels.js'
+import { writingChapterRowLabel, chapterTitleOrdinal } from '../../services/writing/writingChapterLabels.js'
 import { isMachineLedgerEntry } from '../../services/worldbook/entryTableColumns.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { listComicPages, createComicPage, saveComicPage } from '../../services/media/comicPageStore.js'
 
-const props = defineProps({ bookId: { type: String, required: true }, chapters: { type: Array, default: () => [] }, ideas: { type: Array, default: () => [] }, worldbook: { type: Object, default: null }, activeChapterId: { type: String, default: '' }, activeIdeaId: { type: String, default: '' }, beforeOpen: { type: Function, default: null }, createResource: { type: Function, default: null }, refreshWorldbook: { type: Function, default: null } })
-const emit = defineEmits(['manage-worldbook'])
+const props = defineProps({ bookId: { type: String, required: true }, chapters: { type: Array, default: () => [] }, ideas: { type: Array, default: () => [] }, worldbook: { type: Object, default: null }, activeChapterId: { type: String, default: '' }, activeChapterTitle: { type: String, default: '' }, deleteChapters: { type: Function, default: null }, reorderChapters: { type: Function, default: null }, activeIdeaId: { type: String, default: '' }, beforeOpen: { type: Function, default: null }, createResource: { type: Function, default: null }, refreshWorldbook: { type: Function, default: null } })
+const emit = defineEmits(['manage-worldbook', 'import-chapter'])
 const DirectoryCreateDialog = defineAsyncComponent(() => import('./DirectoryCreateDialog.vue'))
 const creation = ref(null)
 const router = useRouter()
@@ -26,6 +26,10 @@ const filter = ref('')
 const filterOpen = ref(false)
 const selectedKey = ref('')
 const focusedKey = ref('')
+const batchKeys = ref(new Set())
+const batchMode = ref(false)
+let batchAnchor = ''
+const batchChapters = computed(() => rows.value.filter(row => batchKeys.value.has(row.key) && row.resource?.type === 'chapter'))
 const closed = ref(new Set())
 let knownCategories = new Set()
 const tree = ref(null)
@@ -57,7 +61,7 @@ const sourceMirror = source => (props.worldbook?.entries || []).find(entry => en
 const catalog = computed(() => [
   ...(props.worldbook?.id ? [{ title: '世界地图', label: '地图', icon: 'map', folder: 'settings', order: -1, resource: resource('map-editor', '', { worldbookId: String(props.worldbook.id) }) }] : []),
   { title: '项目文档', label: '文档', icon: 'sources', folder: 'sources', readonly: true, resource: resource('sources', 'project-documents', { sourcesView: 'files' }) },
-  ...props.chapters.map((item, index) => ({ title: writingChapterRowLabel(index, item.title), label: '章节', icon: 'chapter', folder: 'manuscript', resource: resource('chapter', item.id) })),
+  ...props.chapters.map((item, index) => ({ title: writingChapterRowLabel(index, String(item.id) === props.activeChapterId ? props.activeChapterTitle : item.title), label: '章节', icon: 'chapter', folder: 'manuscript', resource: resource('chapter', item.id) })),
   ...props.ideas.map(item => ({ title: item.title || '未命名构思', label: '构思', icon: 'idea', folder: 'ideas', resource: resource('exploration', item.id) })),
   ...(props.worldbook?.entries || []).filter(item => !isMachineLedgerEntry(item) && !(item.type === 'source' && (props.worldbook?.sourceDocuments || []).some(source => String(source.id) === String(item.metadata?.sourceDocumentId || item.id)))).map(item => ({ title: item.name || item.title || '未命名设定', settingType: item.type, label: ({ character: '人物', location: '地点', organization: '组织', event: '事件', rule: '规则', item: '物品', lore: '背景', style: '文风', source: '来源' })[item.type] || '设定', icon: ({ character: 'character-file', location: 'location-file', organization: 'organization-file', event: 'event-file', source: 'source-file' })[item.type] || 'setting-file', folder: item.type === 'source' ? 'sources' : 'settings', readonly: item.type === 'source', resource: resource('entry', item.id) })),
   ...(props.worldbook?.sourceDocuments || []).map(item => ({ aliases: sourceMirror(item) ? [directoryResourceKey(resource('entry', sourceMirror(item).id))] : [], title: sourceMirror(item)?.name || item.title || '未命名资料', label: '资料', icon: 'source-file', folder: 'sources', readonly: true, resource: resource('source', item.id, { contentHash: item.contentHash || '' }) })),
@@ -121,7 +125,7 @@ function reload() {
   try { directory.value = readDirectory(props.bookId); loadFailed.value = false; error.value = '' } catch (cause) { loadFailed.value = true; error.value = cause.message || '目录无法读取，原记录已保留。' }
   reloadAssets()
 }
-watch(() => props.bookId, () => { query.value = ''; filter.value = ''; filterOpen.value = false; selectedKey.value = ''; focusedKey.value = ''; toolsOpen.value = false; folderDraft.value = null; renameKey.value = ''; endDrag(); directory.value = createDirectory(); reload(); restoreView() }, { immediate: true })
+watch(() => props.bookId, () => { query.value = ''; filter.value = ''; filterOpen.value = false; selectedKey.value = ''; focusedKey.value = ''; batchKeys.value = new Set(); batchMode.value = false; batchAnchor = '';  toolsOpen.value = false; folderDraft.value = null; renameKey.value = ''; endDrag(); directory.value = createDirectory(); reload(); restoreView() }, { immediate: true })
 watch(chosen, row => { rename.value = row?.title || ''; destination.value = ownerParent(row?.parentId || ''); linkTarget.value = ''; linkQuery.value = '' })
 function restoreView() {
   try {
@@ -144,6 +148,7 @@ watch(closed, value => {
 }, { deep: true, flush: 'sync' })
 async function showTools(row, event) {
   if (opening.value) return
+  if (!batchKeys.value.has(row.key)) batchKeys.value = new Set(row.resource?.type === 'chapter' ? [row.key] : [])
   select(row); toolsTrigger = event.currentTarget
   toolsMode.value = 'menu'; newMenuOpen.value = false
   const rect = toolsTrigger.getBoundingClientRect()
@@ -198,7 +203,24 @@ window.addEventListener('storage', changed)
 onBeforeUnmount(() => { unsubscribe(); window.removeEventListener('pinax-comic-pages-changed', changed); window.removeEventListener('pinax-project-directory-changed', changed); window.removeEventListener('storage', changed) })
 function mutate(next) {
   if (loadFailed.value) return false
-  try { directory.value = saveDirectory(props.bookId, directory.value, next); error.value = ''; return true } catch (cause) { error.value = cause.message || '目录未能保存，请重试。'; return false }
+  const previous = directory.value
+  try {
+    directory.value = saveDirectory(props.bookId, previous, next)
+    const all = directoryRows(directory.value, catalog.value, { worldbook: props.worldbook })
+    const chapterIds = []
+    function walk(parentId) {
+      for (const row of all.filter(item => item.parentId === parentId).sort((a, b) => a.order - b.order)) {
+        if (row.folder) walk(row.id)
+        else if (row.resource?.type === 'chapter') chapterIds.push(row.resource.id)
+      }
+    }
+    walk('')
+    if (props.reorderChapters && props.reorderChapters(chapterIds) === false) {
+      directory.value = saveDirectory(props.bookId, directory.value, previous)
+      throw new Error('章节顺序未能保存，已恢复目录顺序。')
+    }
+    error.value = ''; return true
+  } catch (cause) { error.value = cause.message || '目录未能保存，请重试。'; return false }
 }
 async function selectProject(event) {
   const bookId = event.target.value
@@ -215,6 +237,52 @@ async function selectProject(event) {
 }
 function toggle(row) { const next = new Set(closed.value); if (next.has(row.id)) next.delete(row.id); else next.add(row.id); closed.value = next }
 function select(row) { selectedKey.value = row.key; focusedKey.value = row.key }
+function leaveBatchMode() {
+  batchMode.value = false
+  batchKeys.value = new Set()
+  batchAnchor = ''
+}
+function enterBatchMode() {
+  batchMode.value = true
+  batchKeys.value = new Set(chosen.value?.resource?.type === 'chapter' ? [chosen.value.key] : [])
+  batchAnchor = chosen.value?.key || ''
+  closeTools()
+}
+function pickChapter(row, event) {
+  if (row.resource?.type !== 'chapter') return open(row)
+  const modifier = event.ctrlKey || event.metaKey || event.shiftKey
+  if (!batchMode.value && !modifier) {
+    batchKeys.value = new Set()
+    batchAnchor = row.key
+    return open(row)
+  }
+  const next = new Set(batchKeys.value)
+  if (!batchMode.value && chosen.value?.resource?.type === 'chapter') next.add(chosen.value.key)
+  batchMode.value = true
+  if (event.shiftKey && batchAnchor) {
+    const list = visible.value
+    const a = list.findIndex(item => item.key === batchAnchor), b = list.findIndex(item => item.key === row.key)
+    if (a >= 0 && b >= 0) for (const item of list.slice(Math.min(a, b), Math.max(a, b) + 1)) if (item.resource?.type === 'chapter') next.add(item.key)
+  } else {
+    if (next.has(row.key)) next.delete(row.key); else next.add(row.key)
+    batchAnchor = row.key
+  }
+  batchKeys.value = next
+  select(row)
+}
+async function removeSelectedChapters() {
+  const targets = batchChapters.value.map(row => row.resource.id)
+  if (opening.value || !targets.length || !props.deleteChapters) return
+  if (!window.confirm(tr('删除选中的 {count} 个章节？此操作会删除正文。', { count: targets.length }))) return
+  opening.value = true
+  try {
+    if (await props.deleteChapters(targets) === false) error.value = tr('部分章节未能删除，请检查当前文稿及存储状态')
+    batchKeys.value = new Set([...batchKeys.value].filter(key => rows.value.some(row => row.key === key)))
+    if (!batchKeys.value.size) leaveBatchMode()
+    closeTools()
+  } catch (cause) { error.value = cause.message }
+  finally { opening.value = false }
+}
 async function open(row, group = 'main') {
   select(row)
   if (row.folder) { toggle(row); return }
@@ -234,6 +302,13 @@ function creationParent(folderId) {
   if (chosen.value) { const parent = chosen.value.folder ? chosen.value.id : chosen.value.parentId; return rows.value.find(row => row.folder && row.id === parent)?.virtual ? 'settings' : parent }
   return directory.value.folders.some(folder => folder.id === folderId) ? folderId : ''
 }
+/** 导入章节：与「导入资料」同一套选文件逻辑，换成往当前作品建章节的出口。 */
+async function requestChapterImport() {
+  if (opening.value) return
+  closeTools()
+  emit('import-chapter')
+}
+
 async function createContent(type) {
   if (opening.value || (type !== 'comic' && !props.createResource)) return
   const bookId = props.bookId
@@ -352,6 +427,7 @@ function move(row, parentId, order) {
 function moveChosen() { if (chosen.value && move(chosen.value, destination.value, rows.value.filter(row => row.parentId === destination.value).reduce((max, row) => Math.max(max, row.order), -1) + 1)) closeTools(true) }
 function reorder(delta) {
   const row = chosen.value
+  if (!row || row.virtual) return
   const siblings = rows.value.filter(item => !item.virtual && item.parentId === row.parentId).sort((a, b) => a.order - b.order)
   const index = siblings.findIndex(item => item.key === row.key), target = index + delta
   if (target < 0 || target >= siblings.length) return
@@ -359,6 +435,24 @@ function reorder(delta) {
   let next = directory.value
   siblings.forEach((item, order) => { next = moveDirectoryRow(next, item, ownerParent(item.parentId), order) })
   mutate(next)
+}
+function sortFolder(mode) {
+  if (!chosen.value?.folder || chosen.value.virtual) return
+  const siblings = rows.value.filter(item => !item.virtual && item.parentId === chosen.value.id)
+  const collator = new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' })
+  siblings.sort((a, b) => {
+    if (a.folder !== b.folder) return Number(b.folder) - Number(a.folder)
+    if (mode === 'chapter') {
+      const aTitle = props.chapters.find(item => String(item.id) === a.resource?.id)?.title || a.title
+      const bTitle = props.chapters.find(item => String(item.id) === b.resource?.id)?.title || b.title
+      const ai = chapterTitleOrdinal(aTitle), bi = chapterTitleOrdinal(bTitle)
+      if (ai !== null || bi !== null) return (ai ?? Infinity) - (bi ?? Infinity) || collator.compare(aTitle, bTitle)
+    }
+    return collator.compare(a.title, b.title)
+  })
+  let next = directory.value
+  siblings.forEach((item, order) => { next = moveDirectoryRow(next, item, chosen.value.id, order) })
+  if (mutate(next)) closeTools(true)
 }
 function renameFolder() {
   const row = rows.value.find(item => item.key === renameKey.value)
@@ -395,6 +489,10 @@ function reveal(row) {
 async function focusRow(key) { focusedKey.value = key; await nextTick(); [...tree.value?.querySelectorAll('[role="treeitem"]') || []].find(node => node.dataset.key === key)?.focus() }
 function keydown(event, row) {
   if (event.isComposing || event.target !== event.currentTarget) return
+  if (event.key === 'Escape' && batchMode.value) { event.preventDefault(); leaveBatchMode(); return }
+  if (event.key === ' ' && batchMode.value) { event.preventDefault(); pickChapter(row, event); return }
+  if ((event.key === 'Delete' || event.key === 'Backspace') && batchChapters.value.length) { event.preventDefault(); void removeSelectedChapters(); return }
+  if (event.key === ' ' && (event.ctrlKey || event.metaKey || event.shiftKey)) { event.preventDefault(); pickChapter(row, event); return }
   if (event.key === 'F10' && event.shiftKey || event.key === 'ContextMenu') { event.preventDefault(); void showTools(row, event); return }
   if (event.key === 'F2' && row.folder && !row.virtual && !(row.id === 'settings' && props.worldbook)) { event.preventDefault(); select(row); void beginRename(); return }
   if (event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key) && !row.virtual && !filtering.value) { event.preventDefault(); select(row); reorder(event.key === 'ArrowUp' ? -1 : 1); return }
@@ -473,20 +571,23 @@ function drop(event, row = null) {
 <template>
   <section class="project-directory" aria-label="作品文件目录" data-test="project-directory">
     <div class="directory-project"><WorkbenchIcon name="project" :size="15" /><select :value="bookId" :disabled="opening" :aria-label="tr('切换作品')" @change="selectProject"><option v-for="project in projects" :key="project.id" :value="String(project.id)">{{ project.title || tr('未命名作品') }}</option></select><div class="directory-heading-actions">
-      <details class="directory-create"><summary :aria-label="tr('新建内容')" :title="tr('新建内容')"><WorkbenchIcon name="plus" :size="17" /></summary><div @click="$event.currentTarget.closest('details').open = false"><button type="button" @click="createContent('chapter')">{{ tr('章节') }}</button><button type="button" @click="createContent('exploration')">{{ tr('构思') }}</button><button type="button" @click="createContent('comic')">{{ tr('漫画页') }}</button><button type="button" @click="startCreation('entry')">{{ tr('设定') }}</button><button type="button" @click="startCreation('import')">{{ tr('导入资料') }}</button><button type="button" @click="beginFolder">{{ tr('文件夹') }}</button></div></details>
+      <details class="directory-create"><summary :aria-label="tr('新建内容')" :title="tr('新建内容')"><WorkbenchIcon name="plus" :size="17" /></summary><div @click="$event.currentTarget.closest('details').open = false"><button type="button" @click="createContent('chapter')">{{ tr('章节') }}</button><button type="button" @click="requestChapterImport">{{ tr('导入章节…') }}</button><button type="button" @click="createContent('exploration')">{{ tr('构思') }}</button><button type="button" @click="createContent('comic')">{{ tr('漫画页') }}</button><button type="button" @click="startCreation('entry')">{{ tr('设定') }}</button><button type="button" @click="startCreation('import')">{{ tr('导入资料') }}</button><button type="button" @click="beginFolder">{{ tr('文件夹') }}</button></div></details>
       <button type="button" :title="tr('筛选类型')" :aria-label="tr('筛选类型')" :aria-expanded="filterOpen || Boolean(filter)" :class="{ 'is-filtered': filter }" @click="filterOpen = !filterOpen"><WorkbenchIcon name="filter" :size="14" /></button>
       <button type="button" :title="tr('刷新目录')" :aria-label="tr('刷新目录')" @click="reload"><WorkbenchIcon name="refresh" :size="14" /></button>
     </div></div>
+    <div v-if="batchMode" class="directory-selection-toggle"><span>{{ tr('已选择 {count} 章', { count: batchChapters.length }) }}</span><button type="button" :disabled="opening" @click="removeSelectedChapters">{{ tr('删除') }}</button><button type="button" @click="leaveBatchMode">{{ tr('取消多选') }}</button></div>
+    <button v-if="!batchMode && chapters.length > 1" type="button" class="control-quiet" @click="enterBatchMode">{{ tr('多选章节') }}</button>
     <div class="directory-search"><WorkbenchIcon name="search" :size="13" /><input v-model="query" type="search" :placeholder="tr('搜索本书内容')" :aria-label="tr('搜索本书内容')" /></div>
     <div v-if="filterOpen || filter" class="directory-controls"><select v-model="filter" :aria-label="tr('按类型筛选')"><option value="">{{ tr('全部类型') }}</option><option value="chapter">{{ tr('章节') }}</option><option value="exploration">{{ tr('构思') }}</option><option value="entry">{{ tr('设定') }}</option><option value="source">{{ tr('资料 · 只读') }}</option><option value="sources">{{ tr('项目文档 · 只读') }}</option><option value="map-editor">{{ tr('地图') }}</option><option value="comic">{{ tr('漫画') }}</option><option value="asset">{{ tr('素材') }}</option></select><button type="button" :aria-label="tr('清除类型筛选')" @click="filter = ''; filterOpen = false"><WorkbenchIcon name="close" :size="14" /></button></div>
     <div v-if="filtering" class="directory-filter-summary"><span>{{ tr('{count} 项', { count: visible.length }) }}</span><button type="button" @click="query = ''; filter = ''">{{ tr('清除筛选') }}</button></div>
     <p v-if="error" class="directory-notice" role="alert">{{ tr(error) }}</p>
-    <div ref="tree" role="tree" :aria-label="tr('文件目录')" :aria-busy="opening" class="directory-tree" @dragleave="dragLeave">
+    <div ref="tree" role="tree" aria-multiselectable="true" :aria-label="tr('文件目录')" :aria-busy="opening" class="directory-tree" @dragleave="dragLeave">
       <template v-for="(row, index) in treeRows" :key="row.key">
       <form v-if="row.pending" class="directory-row directory-folder-draft" :style="{ paddingInlineStart: `${27 + row.depth * 14}px` }" @submit.prevent="folder" @keydown.esc.stop.prevent="cancelFolderEdit">
         <WorkbenchIcon name="folder" :size="16" /><input data-directory-edit v-model="newName" :aria-label="tr('文件夹名称')" :placeholder="tr('文件夹名称')" maxlength="120" required /><button type="submit" :aria-label="tr('新建文件夹')">↵</button>
       </form>
-      <div v-else role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.folder ? !closed.has(row.id) : undefined" :aria-selected="row.key === selectedKey" :aria-current="isActiveRow(row) ? 'page' : undefined" :aria-label="`${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" :tabindex="row.key === focusedKey || (!visible.some(item => item.key === focusedKey) && index === 0) ? 0 : -1" :data-key="row.key" :title="`${row.path ? row.path + ' / ' : ''}${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" class="directory-row" :data-resource-type="row.resource?.type" :data-setting-type="row.settingType" :class="{ 'is-active': isActiveRow(row), 'is-selected': row.key === selectedKey, 'is-folder': row.folder, 'is-category': row.virtual, 'drop-before': dropHint?.key === row.key && dropHint.edge === 'before', 'drop-after': dropHint?.key === row.key && dropHint.edge === 'after', 'drop-inside': dropHint?.key === row.key && dropHint.edge === 'inside' }" :style="{ paddingInlineStart: `${8 + row.depth * 14}px` }"  :draggable="!row.virtual && !filtering && !folderDraft && !renameKey" @focus="focusedKey = row.key" @click="open(row)" @contextmenu.stop.prevent="showTools(row, $event)" @keydown="keydown($event, row)" @dragstart="drag($event, row)" @dragend="endDrag" @dragover.stop="dragOver($event, row)" @drop.stop="drop($event, row)">
+      <div v-else role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.folder ? !closed.has(row.id) : undefined" :aria-selected="(batchMode ? batchKeys.has(row.key) : row.key === selectedKey)" :aria-current="isActiveRow(row) ? 'page' : undefined" :aria-label="`${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" :tabindex="row.key === focusedKey || (!visible.some(item => item.key === focusedKey) && index === 0) ? 0 : -1" :data-key="row.key" :title="`${row.path ? row.path + ' / ' : ''}${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" class="directory-row" :data-resource-type="row.resource?.type" :data-setting-type="row.settingType" :class="{ 'is-active': isActiveRow(row), 'is-selected': (batchMode ? batchKeys.has(row.key) : row.key === selectedKey), 'is-folder': row.folder, 'is-category': row.virtual, 'drop-before': dropHint?.key === row.key && dropHint.edge === 'before', 'drop-after': dropHint?.key === row.key && dropHint.edge === 'after', 'drop-inside': dropHint?.key === row.key && dropHint.edge === 'inside' }" :style="{ paddingInlineStart: `${8 + row.depth * 14}px` }"  :draggable="!batchMode && !row.virtual && !filtering && !folderDraft && !renameKey" @focus="focusedKey = row.key" @click="pickChapter(row, $event)" @contextmenu.stop.prevent="showTools(row, $event)" @keydown="keydown($event, row)" @dragstart="drag($event, row)" @dragend="endDrag" @dragover.stop="dragOver($event, row)" @drop.stop="drop($event, row)">
+        <input v-if="batchMode && row.resource?.type === 'chapter'" type="checkbox" class="directory-chapter-check" :checked="batchKeys.has(row.key)" :aria-label="tr('选择章节')" @click.stop="pickChapter(row, { ctrlKey: true })" @keydown.stop />
         <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.folder && !closed.has(row.id) && !row.virtual && row.id !== 'settings' ? 'folder-open' : row.icon" :size="16" /><form v-if="renameKey === row.key" class="directory-rename" @click.stop @submit.stop.prevent="renameFolder" @keydown.esc.stop.prevent="cancelFolderEdit"><input data-directory-edit v-model="rename" :aria-label="tr('重命名文件夹')" maxlength="120" required /><button type="submit" :aria-label="tr('保存名称')">↵</button></form><span v-else class="directory-name">{{ row.title }}<small v-if="filtering && row.path">{{ row.path }}</small></span><button v-if="!renameKey" type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
       </div>
       </template>
@@ -501,6 +602,7 @@ function drop(event, row = null) {
             <button type="button" role="menuitem" aria-haspopup="menu" :aria-expanded="newMenuOpen" @click="openNewMenu(true)" @keydown.right.stop.prevent="openNewMenu(true)">{{ tr('新建') }}<WorkbenchIcon name="chevron-down" class="directory-submenu-arrow" :size="14" /></button>
             <div v-if="newMenuOpen" role="menu" :aria-label="tr('新建内容')" class="directory-new-menu" :class="{ 'opens-left': submenuLeft }">
               <button type="button" class="directory-menu-back" role="menuitem" @click="newMenuOpen = false">{{ tr('返回') }}</button><button type="button" role="menuitem" :disabled="!createResource || opening" @click="createContent('chapter')">{{ tr('章节') }}</button>
+              <button type="button" role="menuitem" :disabled="opening" @click="requestChapterImport">{{ tr('导入章节…') }}</button>
               <button type="button" role="menuitem" :disabled="!createResource || opening" @click="createContent('exploration')">{{ tr('构思') }}</button>
               <button type="button" role="menuitem" :disabled="opening" @click="startCreation('entry')">{{ tr('设定…') }}</button>
               <button type="button" role="menuitem" :disabled="opening" @click="createContent('comic')">{{ tr('漫画页') }}</button>
@@ -512,12 +614,15 @@ function drop(event, row = null) {
         <template v-else><button type="button" role="menuitem" @click="open(chosen)">{{ tr('打开') }}</button><button type="button" role="menuitem" @click="open(chosen, 'side')">{{ tr('在旁边打开') }}</button></template>
         <hr v-if="!chosen.virtual || filtering" role="separator" />
         <button v-if="filtering" type="button" role="menuitem" @click="reveal(chosen)">{{ tr('在文件夹中显示') }}</button>
+        <template v-if="chosen.folder && !chosen.virtual"><button type="button" role="menuitem" @click="sortFolder('chapter')">{{ tr('按章号排序') }}</button><button type="button" role="menuitem" @click="sortFolder('name')">{{ tr('按名称排序') }}</button></template>
+        <template v-if="!chosen.folder && !chosen.virtual && !filtering"><button type="button" role="menuitem" @click="reorder(-1)">{{ tr('上移') }}<kbd>Alt ↑</kbd></button><button type="button" role="menuitem" @click="reorder(1)">{{ tr('下移') }}<kbd>Alt ↓</kbd></button></template>
         <button v-if="!chosen.virtual" type="button" role="menuitem" @click="showDetail('move')">{{ tr('移到…') }}</button>
         <template v-if="chosen.folder && !chosen.virtual && !(chosen.id === 'settings' && worldbook)">
           <button type="button" role="menuitem" @click="beginRename">{{ tr('重命名') }}<kbd>F2</kbd></button>
           <button type="button" role="menuitem" @click="removeFolder">{{ tr('移除文件夹') }}</button>
         </template>
         <template v-else-if="chosen.id === 'settings' && worldbook"><button type="button" role="menuitem" @click="openCollection('settings-editor')">{{ tr('管理设定') }}</button><button type="button" role="menuitem" @click="closeTools(); emit('manage-worldbook')">{{ tr('更换世界书') }}</button></template>
+        <button v-if="chosen.resource?.type === 'chapter' && deleteChapters" type="button" role="menuitem" :disabled="opening" @click="removeSelectedChapters">{{ tr('删除选中章节') }}</button>
         <button v-if="!chosen.folder" type="button" role="menuitem" @click="showDetail('links')">{{ tr('关联内容…') }}</button>
       </template>
       <template v-else>
@@ -535,6 +640,7 @@ function drop(event, row = null) {
 </template>
 
 <style scoped>
+.directory-chapter-check { flex: none; width: 13px; height: 13px; margin: 0; accent-color: var(--text-secondary); }
 .project-directory { min-width: 0; font: 13px/1.5 var(--font-sans); color: var(--text-primary); }
 .directory-project { display: flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 8px 0 12px; font-weight: 500; }
 .directory-project > svg { flex: none; color: var(--text-secondary); }

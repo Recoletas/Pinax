@@ -6,6 +6,8 @@ import {
 } from '@earendil-works/pi-agent-core'
 import { NodeExecutionEnv } from '@earendil-works/pi-agent-core/node'
 import { cleanAssistantResumeHistory } from './requestModelTransport.js'
+import { completeAssistantSummary } from './assistantCompactionTransport.js'
+import { isAssistantContextOverflow } from './assistantErrors.js'
 
 // Adapt the existing SSE runner to pi's durable harness. The harness owns the
 // conversation, tool loop, queues, retry and compaction; task journals remain
@@ -52,6 +54,7 @@ export function createAssistantSession(options, { models, tasksDir, req, task, s
     const nativeModels = new Proxy(models, {
       get(target, key) {
         if (key === 'streamSimple') return (model, input, requestOptions) => options.streamFn(model, input, requestOptions)
+        if (key === 'completeSimple') return (model, input, requestOptions) => completeAssistantSummary(target, model, input, requestOptions)
         const value = Reflect.get(target, key, target)
         return typeof value === 'function' ? value.bind(target) : value
       }
@@ -164,7 +167,25 @@ export function createAssistantSession(options, { models, tasksDir, req, task, s
           if (!stopped.ok) throw stopped.error
           open.length = 0
         }
-        const result = typeof message === 'string' ? await lane.prompt(message, undefined, context) : await lane.prompt(message, context)
+        let result = typeof message === 'string' ? await lane.prompt(message, undefined, context) : await lane.prompt(message, context)
+        const originalCompaction = await harness.getCompactionSettings(context)
+        let keepRecentTokens = originalCompaction.keepRecentTokens
+        try {
+          // Pi already attempts ordinary overflow recovery. If the retained raw
+          // tail is still too large, move more of it into the durable summary.
+          // Keep the same session/tools/proposal owner; never replay the task.
+          while (result.ok && result.value.status === 'failed' && isAssistantContextOverflow(result.value.error?.message) && keepRecentTokens > 0) {
+            if (signal?.aborted) throw new Error('PINAX_ADAPTER_ABORTED')
+            keepRecentTokens = Math.floor(keepRecentTokens / 2)
+            await harness.setCompactionSettings({ ...originalCompaction, enabled: true, keepRecentTokens }, context)
+            const recovery = await lane.compact({ customInstructions: '保留作者原始目标、已完成工作、已提交候选及其标识、待办事项和来源。工具读取的长原文归纳为事实和定位，不重复保存全文；不要重做已完成的编辑。' }, context)
+            if (!recovery.ok) throw recovery.error
+            if (recovery.value.compaction.status !== 'completed') throw new Error(recovery.value.compaction.error?.message || '自动压缩未完成，原会话及修改建议已保留。')
+            result = await lane.prompt('继续完成压缩摘要中尚未完成的作者任务。沿用已生成候选和已完成工具结果，不重复提交已有修改；若工作已完成则直接交付。', undefined, context)
+          }
+        } finally {
+          if (keepRecentTokens !== originalCompaction.keepRecentTokens) await harness.setCompactionSettings(originalCompaction, BACKGROUND_CONTEXT)
+        }
         if (!result.ok) throw result.error
         if (result.value.status === 'failed') throw new Error(result.value.error?.message || '助手运行失败。')
         if (result.value.status === 'aborted') throw new Error('PINAX_ADAPTER_ABORTED')

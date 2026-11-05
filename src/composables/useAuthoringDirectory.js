@@ -16,6 +16,17 @@ export function useAuthoringDirectory(owner) {
       if (!search?.open.value) { search?.show(); search?.updateScope('manuscript'); if (search?.query.value) search.run() }
     } else if (mode === 'search' || previous?.[0] === 'search') search?.close({ restore: false })
   }, { immediate: true, flush: 'post' }))
+  function reorderDirectoryChapters(ids) {
+    if (!prepareDirectoryOpen()) return false
+    const positions = new Map(ids.map((id, index) => [String(id), index]))
+    const previous = owner.getChapters()
+    const ordered = [...previous].sort((a, b) => (positions.get(String(a.id)) ?? Infinity) - (positions.get(String(b.id)) ?? Infinity))
+    if (ordered.every((chapter, index) => chapter === previous[index])) return true
+    owner.setChapters(ordered)
+    if (owner.saveChapters()) return true
+    owner.setChapters(previous)
+    return false
+  }
   async function openDirectoryFinding(finding) {
     const bookId = String(owner.bookId())
     if (!prepareDirectoryOpen() || !await directoryHost.prepareOpen('main') || String(owner.bookId()) !== bookId) return false
@@ -51,7 +62,7 @@ export function useAuthoringDirectory(owner) {
     if (!prepareDirectoryOpen()) return null
     if (type === 'chapter') {
       if (owner.ideaId() && !owner.leaveIdea()?.ok) return null
-      if (!owner.createChapter()) return null
+      if (!await owner.createChapter()) return null
     } else {
       const previous = owner.ideaId()
       owner.createIdea()
@@ -62,5 +73,5 @@ export function useAuthoringDirectory(owner) {
     if (String(owner.bookId()) !== bookId) return null
     return { type, bookId, id }
   }
-  return { directoryHost, directoryMode, openDirectoryFinding, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook }
+  return { directoryHost, directoryMode, openDirectoryFinding, prepareDirectoryOpen, createDirectoryResource, refreshDirectoryWorldbook, reorderDirectoryChapters }
 }

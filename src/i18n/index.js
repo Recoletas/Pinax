@@ -46,7 +46,7 @@ export function tr(message, values) {
     reportedMissing.add(message)
     console.warn('[i18n] Missing English message:', message)
   }
-  return message
+  return String(message).replace(/\{([\w]+)\}/g, (placeholder, key) => values && Object.hasOwn(values, key) ? String(values[key]) : placeholder)
 }
 export function formatUiNumber(value) { return Number(value || 0).toLocaleString(uiLocale.value) }
 export function setLanguagePreferences(locale, assistant = assistantLanguage.value) {

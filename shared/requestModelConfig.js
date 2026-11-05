@@ -11,7 +11,15 @@ export function normalizeRequestModelConfig(input) {
   if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || baseUrl.length > 2048) throw new Error('模型服务地址无效。')
   const api = input.api || (input.format === 'anthropic' || provider === 'anthropic' || /\/anthropic|api\.anthropic\.com/i.test(baseUrl) ? 'anthropic-messages' : 'openai-completions')
   if (!['anthropic-messages', 'openai-completions'].includes(api)) throw new Error('模型接口协议无效。')
-  return { provider, model, baseUrl, apiKey, api }
+  const capacity = {}
+  for (const key of ['contextWindow', 'maxOutputTokens']) {
+    if (input[key] == null || input[key] === '') continue
+    const value = Number(input[key])
+    if (!Number.isSafeInteger(value) || value <= 0) throw new Error('模型容量须填写服务商声明的正整数 token 数。')
+    capacity[key] = value
+  }
+  if (capacity.contextWindow && capacity.maxOutputTokens >= capacity.contextWindow) throw new Error('最大输出须小于上下文窗口。')
+  return { provider, model, baseUrl, apiKey, api, ...capacity }
 }
 
 export function requestScopedRuntimeConfig(defaults, selection) {

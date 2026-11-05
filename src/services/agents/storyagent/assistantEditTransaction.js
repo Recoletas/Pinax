@@ -34,7 +34,7 @@ export function prepareAssistantProposal(input, { book, worldbook, runId }) {
     // Surrounding text protects location while permitting unrelated edits elsewhere.
     const sourceNode = change.kind === 'chapter' && target.editorDocument ? getWritingBlockAtPosition(target.editorDocument, from) : null
     const anchor = { from, to, nodeId: sourceNode?.nodeId || '', unitId: sourceNode?.unitId || '', prefix: baseline.slice(Math.max(0, from - 48), from), suffix: baseline.slice(to, to + 48) }
-    return { ...change, ...identity, ...(change.details ? { detailsBaseline: entryDetailsSnapshot(target) } : {}), label: target.name || target.title || change.targetId, baseline, anchor }
+    return { ...change, ...identity, ...(change.kind === 'worldbook' ? { entryType: target.type || change.entryType } : {}), ...(change.details ? { detailsBaseline: entryDetailsSnapshot(target) } : {}), label: target.name || target.title || change.targetId, baseline, anchor }
   })
   for (const change of prepared) if ((change.dependsOn || []).some(id => !prepared.some(item => item.changeId === id) || id === change.changeId)) throw new Error('修改依赖不存在。')
   return { schemaVersion: 2, id: `${runId}:edit`, runId, bookId: String(book.id), worldbookId: String(book.worldbookId || ''), status: 'pending', changes: prepared }
@@ -45,9 +45,21 @@ export function selectAssistantProposalChanges(proposal, changeIds, discard = fa
   const selected = changeIds ? pending.filter(change => changeIds.includes(change.changeId)) : pending
   if (!selected.length) throw new Error('修改已处理或不存在。')
   const groups = new Set(selected.map(change => change.groupId))
-  const expanded = pending.filter(change => groups.has(change.groupId))
+  const expanded = changeIds ? selected : pending.filter(change => groups.has(change.groupId))
   for (const change of expanded) if (!discard && ((change.dependsOn || []).some(id => !expanded.some(item => item.changeId === id) && !proposal.changes.some(item => item.changeId === id && item.status === 'adopted')))) throw new Error('请先采用关联修改，或一起采用。')
   return expanded
+}
+function locateTextChange(before, change) {
+  const needle = change.anchor.prefix + (change.operation === 'insert' ? '' : change.before) + change.anchor.suffix
+  const index = before.indexOf(needle)
+  if (needle && index >= 0 && index === before.lastIndexOf(needle)) return index + change.anchor.prefix.length
+  // Adjacent edits may change context without changing the selected text.
+  // Inserts still require context: an empty range is never a unique match.
+  if (change.operation !== 'insert' && change.before) {
+    const exact = before.indexOf(change.before)
+    if (exact >= 0 && exact === before.lastIndexOf(change.before)) return exact
+  }
+  throw new Error('修改原文已变化或有多处相同文字，建议已保留。')
 }
 function applyTextChange(before, change) {
   if (!change.anchor) {
@@ -59,15 +71,23 @@ function applyTextChange(before, change) {
     if (before !== change.baseline && (!tail || !before.endsWith(tail))) throw new Error('原落笔位置已变化，请重新定位。')
     return `${before}${before ? '\n\n' : ''}${change.after}`
   }
-  const needle = change.anchor.prefix + (change.operation === 'insert' ? '' : change.before) + change.anchor.suffix
-  const index = before.indexOf(needle)
-  if (index < 0 || index !== before.lastIndexOf(needle)) throw new Error('修改段落已变化或无法唯一定位，建议已保留。')
-  const start = index + change.anchor.prefix.length
+  const start = locateTextChange(before, change)
   return before.slice(0, start) + change.after + before.slice(start + (change.operation === 'insert' ? 0 : change.before.length))
 }
 
 export function applyAssistantProposal(proposal, { book, worldbook, undo = false, discard = false, changeIds = null }) {
-  if (String(book?.id) !== proposal.bookId || String(book?.worldbookId || '') !== (proposal.receipt?.worldbookId ?? proposal.worldbookId)) throw new Error('作品或关联资料库已变化。')
+  if (discard) {
+    if (String(book?.id) !== proposal.bookId) throw new Error('作品已切换。')
+    const selected = selectAssistantProposalChanges(proposal, changeIds, true)
+    const ids = new Set(selected.map(change => change.changeId))
+    const proposalChanges = proposal.changes.map(change => ids.has(change.changeId) ? { ...change, status: 'discarded' } : { ...change })
+    const pending = proposalChanges.some(change => !change.status || change.status === 'pending')
+    const adopted = proposalChanges.some(change => change.status === 'adopted')
+    return { book, worldbook, changes: [], proposalChanges, status: pending ? adopted ? 'partial' : 'pending' : adopted ? 'adopted' : 'discarded', protectionSnapshots: [] }
+  }
+  const expectedWorldbook = proposal.receipt?.worldbookId ?? proposal.worldbookId
+  const assistantCreatedBinding = !expectedWorldbook && String(book?.worldbookId || '') === `assistant-world-${book.id}` && String(worldbook?.id) === String(book.worldbookId)
+  if (String(book?.id) !== proposal.bookId || String(book?.worldbookId || '') !== expectedWorldbook && !assistantCreatedBinding) throw new Error('作品或关联资料库已变化。')
   const nextBook = clone(book); let nextWorldbook = worldbook ? clone(worldbook) : null
   const selected = undo ? [] : selectAssistantProposalChanges(proposal, changeIds, discard)
   const createdWorldbook = !undo && !discard && !nextWorldbook && !book.worldbookId && selected.some(change => change.kind === 'worldbook' && change.operation === 'create')
@@ -76,18 +96,25 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
     nextBook.worldbookId = nextWorldbook.id
   }
   const receipts = []
-  const changes = undo ? [...proposal.receipt.changes].reverse() : discard ? [] : selected
+  const changes = undo ? [...proposal.receipt.changes].filter(change => !changeIds || changeIds.includes(change.changeId)).reverse() : discard ? [] : selected
+  if (undo && !changes.length) throw new Error('所选分类没有可撤销的修改。')
+  if (undo && proposal.changes.some(change => change.status === 'adopted' && !changes.some(selected => selected.changeId === change.changeId) && change.dependsOn?.some(id => changes.some(selected => selected.changeId === id)))) throw new Error('其他已采纳修改依赖这一分类，请先撤销关联分类或使用全部撤销。')
   const placements = new Map()
+  const alreadyApplied = new Set()
   if (!undo && !discard) for (const change of changes.filter(item => item.operation !== 'create')) {
     const target = listOf(book, worldbook, change.kind)?.find(item => String(item.id) === change.targetId)
+    if (!target) throw new Error(`${change.label || change.targetId}：修改目标已不存在。`)
     const original = valueOf(target, change)
+    const detailsApplied = !change.details || (() => { const updated = clone(target); applyEntryDetails(updated, change.details); return entryDetailsSnapshot(updated) === entryDetailsSnapshot(target) })()
+    if (original === applyTextChange(change.baseline, change) && detailsApplied) { alreadyApplied.add(change.changeId); continue }
     if (change.anchor?.nodeId && target?.editorDocument && !getWritingDocumentNodes(target.editorDocument).some(item => item.node.attrs.nodeId === change.anchor.nodeId)) throw new Error('原段落已删除，请重新定位。')
     if (change.details && entryDetailsSnapshot(target) !== change.detailsBaseline) throw new Error('条目属性已变化，请重新生成修改。')
-    applyTextChange(original, change) // Validate every anchor against the same original field before changing it.
-    const needle = change.anchor ? change.anchor.prefix + (change.operation === 'insert' ? '' : change.before) + change.anchor.suffix : change.before
-    placements.set(change.changeId, change.operation === 'append' ? original.length : original.indexOf(needle) + (change.anchor?.prefix?.length || 0))
+    try { applyTextChange(original, change) } // Validate against the original field before changing it.
+    catch (error) { throw new Error(`${change.label || change.targetId}：${error.message}`) }
+    placements.set(change.changeId, change.operation === 'append' ? original.length : change.anchor ? locateTextChange(original, change) : original.indexOf(change.before))
   }
   for (const change of changes) {
+    if (alreadyApplied.has(change.changeId)) continue
     const list = listOf(nextBook, nextWorldbook, change.kind)
     if (!Array.isArray(list)) throw new Error('目标资料库尚未关联。')
     const target = list.find(item => String(item.id) === change.targetId)
@@ -96,7 +123,12 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
       list.splice(list.indexOf(target), 1); continue
     }
     if (!undo && change.operation === 'create') {
-      if (target) throw new Error('新建条目已存在。')
+      if (target) {
+        const updated = clone(target); applyEntryDetails(updated, change.details)
+        const title = change.kind === 'worldbook' ? target.name : target.title
+        if (title === change.title && valueOf(target, change) === change.after && (change.kind !== 'worldbook' || target.type === change.entryType) && entryDetailsSnapshot(updated) === entryDetailsSnapshot(target)) continue
+        throw new Error(`${change.label || change.title || change.targetId}：同 ID 条目已存在且内容不同，未覆盖。`)
+      }
       const created = { id: change.targetId, ...(change.kind === 'worldbook' ? { type: change.entryType, name: change.title, content: '' } : { title: change.title, content: '' }) }
       assign(created, change, change.after)
       applyEntryDetails(created, change.details)
@@ -109,7 +141,8 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
     let after = change.baseline
     if (!undo) {
       let position = placements.get(change.changeId)
-      for (const applied of receipts.filter(item => item.kind === change.kind && item.targetId === change.targetId && item.field === change.field && placements.get(item.changeId) < position)) {
+      const originalPosition = position
+      for (const applied of receipts.filter(item => item.kind === change.kind && item.targetId === change.targetId && item.field === change.field && placements.get(item.changeId) < originalPosition)) {
         position += applied.after.length - (applied.operation === 'insert' ? 0 : applied.before.length)
       }
       after = change.operation === 'append' ? `${before}${before ? '\n\n' : ''}${change.after}` : before.slice(0, position) + change.after + before.slice(position + (change.operation === 'insert' ? 0 : change.before.length))
@@ -144,11 +177,11 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
     }
     receipts.push({ ...change, ...(change.details ? { beforeDetails, appliedDetails: entryDetailsSnapshot(target) } : {}), ...(beforeEditorDocument !== undefined ? { beforeEditorDocument } : {}), baseline: before, applied: valueOf(target, change), ...(characterContent ? { hadCharacterProfile, beforeCharacterProfile, appliedCharacterProfile: JSON.stringify(target.metadata.characterProfile) } : {}) })
   }
-  if (undo && proposal.receipt.createdWorldbook && !nextWorldbook.entries.length && !(nextWorldbook.sourceDocuments || []).length) { nextBook.worldbookId = ''; nextWorldbook = null }
+  if (undo && changes.some(change => change.kind === 'worldbook') && proposal.receipt.createdWorldbook && !nextWorldbook.entries.length && !(nextWorldbook.sourceDocuments || []).length) { nextBook.worldbookId = ''; nextWorldbook = null }
   if (nextWorldbook) nextWorldbook.entriesMap = Object.fromEntries(nextWorldbook.entries.map(entry => [entry.id, entry]))
   nextBook.updatedAt = new Date().toISOString()
   if (nextWorldbook && changes.some(change => change.kind === 'worldbook')) nextWorldbook.updatedAt = Math.max(Date.now(), Number(worldbook?.updatedAt || 0) + 1)
-  const handled = new Set((undo ? proposal.receipt.changes : selected).map(change => change.changeId))
+  const handled = new Set((undo ? changes : selected).map(change => change.changeId))
   const proposalChanges = proposal.changes.map(change => handled.has(change.changeId) ? { ...change, status: undo ? 'undone' : discard ? 'discarded' : 'adopted' } : { ...change })
   // Partial adoption advances anchors using the recorded positions, never by guessing a repeated fragment.
   if (!undo && !discard) for (const remaining of proposalChanges.filter(change => change.status === 'pending' && change.anchor)) {
@@ -169,7 +202,8 @@ export function applyAssistantProposal(proposal, { book, worldbook, undo = false
     const to = position + (remaining.operation === 'insert' ? 0 : remaining.before.length)
     remaining.anchor = { ...remaining.anchor, from: position, to, prefix: baseline.slice(Math.max(0, position - 48), position), suffix: baseline.slice(to, to + 48) }
   }
-  const status = proposalChanges.some(change => change.status === 'pending') ? (undo ? 'pending' : 'partial') : undo ? 'undone' : proposalChanges.some(change => change.status === 'adopted') ? 'adopted' : 'discarded'
+  const hasAdopted = proposalChanges.some(change => change.status === 'adopted')
+  const status = proposalChanges.some(change => !change.status || change.status === 'pending') ? (hasAdopted ? 'partial' : 'pending') : hasAdopted ? 'adopted' : undo ? 'undone' : 'discarded'
   const protectionSnapshots = undo || discard ? [] : [...new Set(selected.filter(change => change.kind === 'chapter' && change.operation !== 'create').map(change => change.targetId))].map(id => { const chapter = book.chapters.find(item => String(item.id) === id); return { chapterId: id, chapterTitle: chapter.title || '', document: clone(chapter.editorDocument || createWritingDocument(getChapterMarkdown(chapter))), markdown: getChapterMarkdown(chapter), annotations: clone(chapter.annotations || []) } })
   return { book: nextBook, worldbook: nextWorldbook, changes: receipts, createdWorldbook, proposalChanges, status, protectionSnapshots }
 }

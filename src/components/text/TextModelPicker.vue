@@ -284,6 +284,7 @@ useTransientLayer({
             <label><span>{{ tr('API 地址') }}</span><input v-model="editingConfig.baseUrl" :placeholder="tr(&quot;渠道默认地址或自定义地址&quot;)" /></label>
             <label><span>API Key</span><input v-model="editingConfig.apiKey" type="password" autocomplete="off" :placeholder="tr(&quot;填你自己的 Key&quot;)" /></label>
             <label><span>{{ tr('模型') }}</span><input v-model="editingConfig.model" :placeholder="tr(&quot;模型名称&quot;)" /></label>
+            <details><summary>{{ tr('模型容量（可选）') }}</summary><label><span>{{ tr('上下文窗口 · tokens') }}</span><input v-model.number="editingConfig.contextWindow" type="number" min="1" step="1" :placeholder="tr('按服务商实际容量填写')" /></label><label><span>{{ tr('最大输出 · tokens') }}</span><input v-model.number="editingConfig.maxOutputTokens" type="number" min="1" step="1" :placeholder="tr('按服务商实际容量填写')" /></label></details>
           </div>
           <p v-if="connectionState.message" class="text-model-message text-model-message--result" :class="`is-${connectionState.kind}`" role="status">{{ connectionState.message }}</p>
 

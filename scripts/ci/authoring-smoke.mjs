@@ -147,7 +147,7 @@ async function runJourney() {
 
     const page = await context.newPage()
     const pageErrors = []
-    page.on('pageerror', (error) => pageErrors.push(String(error?.message || error)))
+    page.on('pageerror', (error) => { const message = String(error?.message || error); pageErrors.push(message); console.error(`[pageerror] ${message}`) })
 
     log('step 1: 打开欢迎页（无 Key、全新 localStorage）')
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' })

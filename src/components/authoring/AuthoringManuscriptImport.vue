@@ -3,7 +3,7 @@
     <section ref="dialog" class="manuscript-import" role="dialog" aria-modal="true" aria-labelledby="manuscript-import-title" @keydown="onKeydown">
       <header class="manuscript-import__head">
         <div>
-          <h2 id="manuscript-import-title">{{ tr('导入 TXT / Markdown') }}</h2>
+          <h2 id="manuscript-import-title">{{ intoChapters ? tr('导入章节') : tr('导入 TXT / Markdown') }}</h2>
         </div>
         <button ref="closeButton" class="manuscript-import__close" type="button" :aria-label="tr(&quot;关闭导入&quot;)" @click="emit('close')">×</button>
       </header>
@@ -23,9 +23,9 @@
             <span>{{ tr('读取完成后可以继续改名或调整拆章方式。') }}</span>
           </template>
           <template v-else>
-            <strong>{{ tr('选择一份书稿') }}</strong>
-            <span>{{ tr('或把 .txt / .md 文件拖到这里') }}</span>
-            <small>{{ tr('支持常见中文编码，最大 5 MB；选择文件不会立即写入。') }}</small>
+            <strong>{{ intoChapters ? tr('选择作品或文件') : tr('选择一份书稿') }}</strong>
+            <span>{{ intoChapters ? tr('或把 .txt / .md 文件拖到这里') : tr('或把 .txt / .md 文件拖到这里') }}</span>
+            <small>{{ intoChapters ? tr('识别出的章节会列在下一步，可以先改名再导入。') : tr('支持常见中文编码，最大 5 MB；选择文件不会立即写入。') }}</small>
           </template>
         </button>
         <input ref="fileInput" class="manuscript-import__file" type="file" accept=".txt,.md,.markdown,text/plain,text/markdown" @change="handleFileInput">
@@ -37,17 +37,18 @@
           :disabled="reading"
           @click="pickFolder"
         >
-          <strong>{{ tr('选择文件夹（书稿 + 资料）') }}</strong>
+          <strong>{{ intoChapters ? tr('选择文件夹（作品章节）') : tr('选择文件夹（书稿 + 资料）') }}</strong>
           <span>{{ folderModeHint }}</span>
         </button>
         <p v-if="error" class="manuscript-import__error" role="alert">{{ tr(error) }}</p>
       </div>
 
       <div v-else class="manuscript-import__review">
-        <div class="manuscript-import__field">
+        <div v-if="!intoChapters" class="manuscript-import__field">
           <label for="manuscript-book-title">{{ tr('书名') }}</label>
           <input id="manuscript-book-title" ref="titleInput" v-model="bookTitle" maxlength="120" type="text" data-test="manuscript-book-title" @input="authorTitleEdited = true">
         </div>
+        <p v-else class="manuscript-import__target" data-test="manuscript-import-target">{{ tr('导入到当前作品《{value0}》', { value0: targetTitle || tr('当前作品') }) }}</p>
 
         <fieldset class="manuscript-import__mode">
           <legend>{{ tr('怎样建立章节') }}</legend>
@@ -101,11 +102,12 @@
       </div>
 
       <footer class="manuscript-import__foot">
-        <p>{{ tr('确认后会新建一本书，不覆盖现有书稿。正文保存在当前浏览器。') }}</p>
+        <p v-if="intoChapters">{{ tr('确认后会在当前作品里新建 {value0} 章，不覆盖已有章节；资料文件（子目录、pdf/docx/epub）不会随章节导入。', { value0: draftChapters.length }) }}</p>
+        <p v-else>{{ tr('确认后会新建一本书，不覆盖现有书稿。正文保存在当前浏览器。') }}</p>
         <div>
           <button v-if="parsed" type="button" class="manuscript-import__secondary" @click="reset">{{ tr('重新选择') }}</button>
           <button type="button" class="manuscript-import__secondary" @click="emit('close')">{{ tr('取消') }}</button>
-          <button v-if="parsed" type="button" class="manuscript-import__primary" data-test="manuscript-import-confirm" :disabled="!canConfirm || confirming" @click="confirmImport">{{ confirming ? tr('正在创建…') : tr('创建书稿') }}</button>
+          <button v-if="parsed" type="button" class="manuscript-import__primary" data-test="manuscript-import-confirm" :disabled="!canConfirm || confirming" @click="confirmImport">{{ confirming ? (intoChapters ? tr('正在导入…') : tr('正在创建…')) : (intoChapters ? tr('导入章节') : tr('创建书稿')) }}</button>
         </div>
       </footer>
     </section>
@@ -125,9 +127,17 @@ import {
   parseManuscriptText,
   validateManuscriptFile
 } from '../../services/writing/writingManuscriptImport.js'
-import { archiveMaterialEntries, importFolderAsBook } from '../../services/import/importPipeline.js'
+import { archiveMaterialEntries, collectFolderChapters, importFolderAsBook } from '../../services/import/importPipeline.js'
 
-const emit = defineEmits(['close', 'import'])
+const props = defineProps({
+  // target='book'：确认后新建一本书（既有行为）。
+  // target='chapters'：确认后把章节交给调用方导进当前作品，不新建书、不归档资料。
+  target: { type: String, default: 'book' },
+  targetTitle: { type: String, default: '' }
+})
+const emit = defineEmits(['close', 'import', 'import-chapters'])
+
+const intoChapters = computed(() => props.target === 'chapters')
 
 const dialog = ref(null)
 const closeButton = ref(null)
@@ -161,14 +171,16 @@ const previewSnapshot = ref(null)
 const folderMaterials = ref(null)
 
 const folderModeHint = computed(() => (
-  typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
-    ? tr('根目录 txt/md 合并为一本书；子目录与 pdf/docx/epub 归为资料')
-    : tr('浏览器不支持目录选择器时将列出文件夹内文件')
+  intoChapters.value
+    ? tr('根目录 txt/md 作为章节导入当前作品；子目录与 pdf/docx/epub 不导入')
+    : typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function'
+      ? tr('根目录 txt/md 合并为一本书；子目录与 pdf/docx/epub 归为资料')
+      : tr('浏览器不支持目录选择器时将列出文件夹内文件')
 ))
 
 const autoChapters = computed(() => parsed.value?.chapters || [])
 const canConfirm = computed(() => Boolean(
-  bookTitle.value.trim()
+  (intoChapters.value || bookTitle.value.trim())
   && draftChapters.value.length
   && draftChapters.value.every((chapter) => chapter.title.trim())
 ))
@@ -381,20 +393,27 @@ function handleFolderInput(event) {
 }
 
 async function reviewFolder(folderName, walked) {
-  const result = await importFolderAsBook({ folderName, entries: walked.entries, manuscriptLanguage: manuscriptLanguage.value, sourceParse: async () => ({ results: [] }) })
+  // 章节模式只要章节：走同一套分类与解析，但不建书、不归档资料。
+  const result = intoChapters.value
+    ? await collectFolderChapters({ folderName, entries: walked.entries, manuscriptLanguage: manuscriptLanguage.value })
+    : await importFolderAsBook({ folderName, entries: walked.entries, manuscriptLanguage: manuscriptLanguage.value, sourceParse: async () => ({ results: [] }) })
   if (!result.ok) {
     error.value = tr(result.message || '这个文件夹里没有可导入的书稿。')
     return
   }
   clearAuthorEdits()
-  folderMaterials.value = result.ok ? walked.entries.filter((entry) => entry.depth > 0 || /\.(?:pdf|docx|epub)$/iu.test(entry.name)) : null
-  parsed.value = { ok: true, title: result.book.title, filename: `${folderName}/`, text: '', charCount: 0, detected: false, chapters: result.book.chapters, folderImport: true }
+  const chapters = intoChapters.value ? result.chapters : result.book.chapters
+  folderMaterials.value = intoChapters.value
+    ? null
+    : walked.entries.filter((entry) => entry.depth > 0 || /\.(?:pdf|docx|epub)$/iu.test(entry.name))
+  parsed.value = { ok: true, title: intoChapters.value ? (props.targetTitle || folderName) : result.book.title, filename: `${folderName}/`, text: '', charCount: 0, detected: false, chapters, folderImport: true }
   encodingInfo.value = null
-  bookTitle.value = result.book.title
+  bookTitle.value = intoChapters.value ? (props.targetTitle || folderName) : result.book.title
   mode.value = 'auto'
-  draftChapters.value = cloneChapters(result.book.chapters)
+  draftChapters.value = cloneChapters(chapters)
   await nextTick()
-  titleInput.value?.focus()
+  if (intoChapters.value) closeButton.value?.focus()
+  else titleInput.value?.focus()
 }
 
 function handleDrop(event) {
@@ -425,6 +444,20 @@ function reset() {
 
 function confirmImport() {
   if (confirming.value || !canConfirm.value) return
+  // 章节模式：不新建书，章节交给调用方导进当前作品。
+  if (intoChapters.value) {
+    confirming.value = true
+    let responded = false
+    emit('import-chapters', cloneChapters(draftChapters.value), (ok) => {
+      responded = true
+      if (ok) return
+      confirming.value = false
+      error.value = tr('导入未能保存。请保留原文件，重试或换一个浏览器；不要清除已有作品。')
+      nextTick(() => errorLine.value?.focus())
+    })
+    if (!responded) confirming.value = false
+    return
+  }
   const result = createImportedWritingBook({ title: bookTitle.value, chapters: draftChapters.value, manuscriptLanguage: manuscriptLanguage.value })
   if (!result.ok) {
     error.value = result.reason === 'title-required' ? tr('请填写书名。') : tr('没有可以导入的章节。')
@@ -574,6 +607,7 @@ onBeforeUnmount(() => {
 
 .manuscript-import__review { display: grid; gap: 18px; }
 .manuscript-import__field { display: grid; gap: 7px; }
+.manuscript-import__target { margin: 0; color: var(--text-secondary); font-size: 13px; }
 .manuscript-import__field label,
 .manuscript-import__mode legend { color: var(--text-secondary); font-size: 12px; font-weight: 650; }
 .manuscript-import input[type='text'] {

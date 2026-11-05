@@ -1,4 +1,5 @@
 import { runGenerationTask } from '../../generationService.js'
+import { resolveAssistantEditReview } from './assistantEditReviewState.js'
 
 const contentOf = message => message.role === 'user' ? message.question : message.answer?.stale ? '' : message.answer?.answer || message.text || ''
 
@@ -23,13 +24,14 @@ export function assistantEditDecisions(messages, bookId, readReceipt = () => nul
   return { proposals: messages.flatMap(message => {
     const candidate = message.proposal
     if (!candidate || candidate.bookId !== String(bookId)) return []
-    const saved = readReceipt(candidate.id)
-    const proposal = saved?.bookId === candidate.bookId ? saved : candidate
+    const proposal = resolveAssistantEditReview(candidate, readReceipt)
     return [{ proposalId: proposal.id, runId: proposal.runId, taskId: message.taskId || '', status: proposal.status,
       changes: proposal.changes.map(change => ({ changeId: change.changeId, kind: change.kind, targetId: change.targetId,
         field: change.field, operation: change.operation, status: change.status || 'pending', before: change.before, after: change.after,
         ...(change.details ? { details: change.details } : {}) })),
-      ...(proposal.receipt ? { receipt: proposal.receipt } : {}) }]
+      // Recovery snapshots/whole entities belong to local undo storage. Sending
+      // them in the system prompt makes them immune to history compaction.
+    }]
   }) }
 }
 

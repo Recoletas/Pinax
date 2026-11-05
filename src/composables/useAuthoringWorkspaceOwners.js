@@ -26,6 +26,7 @@ export { useAuthoringAnnotationSession } from './useAuthoringAnnotationSession.j
 export { useAuthoringAnnotationSelection } from './useAuthoringAnnotationSelection.js'
 export { useAuthoringAnnotationLayout } from './useAuthoringAnnotationLayout.js'
 export { useAuthoringBookActivation } from './useAuthoringBookActivation.js'
+export { useChapterCore } from './useChapterCore.js'
 export { useAuthoringKnowledgeAssistant } from './useAuthoringKnowledgeAssistant.js'
 export { useAuthoringIllustrator } from './useAuthoringIllustrator.js'
 export { useBodyScrollLock } from './useBodyScrollLock.js'
