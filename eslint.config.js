@@ -11,7 +11,8 @@ const testFiles = [
   'src/__tests__/**/*.js',
   'src/**/*.{test,spec}.{js,mjs}',
   'shared/**/*.{test,spec}.{js,mjs}',
-  'electron/**/*.{test,spec}.{js,mjs}'
+  'electron/**/*.{test,spec}.{js,mjs}',
+  'packages/**/*.{test,spec}.{js,mjs}'
 ]
 const nodeFiles = [
   'server/**/*.js',

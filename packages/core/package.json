@@ -1,0 +1,16 @@
+{
+  "name": "@pinax/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Pinax platform-neutral business core (seed)",
+  "files": [
+    "src",
+    "README.md",
+    "package.json"
+  ],
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "sideEffects": false
+}

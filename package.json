@@ -23,6 +23,10 @@
     "lint:delta": "node scripts/lint-delta.mjs",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:core": "vitest run packages/core/test",
+    "lint:core": "eslint packages/core --ext .js --max-warnings 0",
+    "core:pack": "node scripts/pack-core.mjs",
+    "core:smoke": "node scripts/core-package-smoke.mjs",
     "verify": "npm run verify:full",
     "verify:contract": "vitest run --reporter=default --reporter=./scripts/vitest-budget-reporter.mjs",
     "verify:post": "vite build && git diff --check",
@@ -93,6 +97,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@pinax/core": "file:vendor/core/pinax-core-0.8.0.tgz",
     "@tiptap/core": "^3.31.3",
     "@tiptap/extension-unique-id": "^3.31.3",
     "@tiptap/pm": "^3.31.3",

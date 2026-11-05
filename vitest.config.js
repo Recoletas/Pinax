@@ -15,7 +15,8 @@ export default defineConfig({
     include: [
       'src/**/*.{test,spec}.{js,mjs}',
       'shared/**/*.{test,spec}.{js,mjs}',
-      'electron/**/*.{test,spec}.{js,mjs}'
+      'electron/**/*.{test,spec}.{js,mjs}',
+      'packages/**/*.{test,spec}.{js,mjs}'
     ],
     setupFiles: ['./vitest.setup.js']
   }
