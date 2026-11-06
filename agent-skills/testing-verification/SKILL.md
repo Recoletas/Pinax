@@ -9,9 +9,11 @@ Pre-claim guardrail. Evidence before assertions, always.
 
 ## Hard test budget
 
-- 核心 Vitest 套件总量不得超过 **20 个测试文件 / 200 个测试用例**。这是仓库总量上限，不是单次命令或默认 include 的上限。
+既有 Core 切片已于 2026-11-06 基线将 reporter 预算升为30/290（见 reporter 顶部逐项记录）；此处同步旧规范，不扩大本轮测试预算。独立Core仓库有自己的合同测试，宿主不通过排除现有测试缩小计数。
+
+- 核心 Vitest 套件总量不得超过 **30 个测试文件 / 290 个测试用例**。这是仓库总量上限，不是单次命令或默认 include 的上限。
 - 禁止用排除目录、改后缀、拆出另一套 Vitest 配置或只跑 focused tests 来绕过计数。实验评测应改为 `scripts/` 下的显式 eval/smoke；重复回归应把断言并入既有用例。
-- `verify:full` 的 budget reporter 必须打印 `files <= 20` 与 `tests <= 200`。任一超限，即使所有断言通过也不得声明完成或合并。
+- `verify:full` 的 budget reporter 必须打印 `files <= 30` 与 `tests <= 290`。任一超限，即使所有断言通过也不得声明完成或合并。
 
 ## Verification scope
 

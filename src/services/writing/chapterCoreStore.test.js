@@ -84,6 +84,19 @@ describe('browser chapter store adapter', () => {
     expect(chapters.value).toHaveLength(0)
     expect(books.value[0].chapters).toHaveLength(0)
     expect(saveBooks).toHaveBeenCalledTimes(1)
+    const savedChapter = { id: 'saved', content: 'before', revision: 2, editorDocument: { revision: 2 }, editorDocumentSchemaVersion: 3 }
+    const sourceBook = { id: 'book-1', chapters: [savedChapter], updatedAt: 'before' }
+    const booksList = [sourceBook]
+    const original = JSON.stringify(sourceBook)
+    const store = createBrowserChapterStore({ loadBooks: () => booksList, saveBooks: () => ({ ok: false }) })
+    expect(store.update('book-1', 'saved', { content: 'after' }, { expectedRevision: 2 }).ok).toBe(false)
+    expect(JSON.stringify(sourceBook)).toBe(original)
+    expect(sourceBook.chapters[0]).toBe(savedChapter)
+    expect(store.remove('book-1', 'saved', { expectedRevision: 2 }).ok).toBe(false)
+    expect(JSON.stringify(sourceBook)).toBe(original)
+    const throwing = createBrowserChapterStore({ loadBooks: () => booksList, saveBooks: () => { throw new Error('disk failed') } })
+    expect(throwing.update('book-1', 'saved', { content: 'after' }, { expectedRevision: 2 }).ok).toBe(false)
+    expect(JSON.stringify(sourceBook)).toBe(original)
   })
 
   it('removes a chapter through useChapterCore and rejects stale removal', async () => {

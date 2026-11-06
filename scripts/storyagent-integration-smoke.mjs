@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
 import express from 'express'
-import { mkdtemp, copyFile, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { assistantRuntimeFiles } from './extend-assistant-runtime.mjs'
+import { copyAssistantRuntimeFiles } from './extend-assistant-runtime.mjs'
 import { createStoryAgentRouter } from '../server/routes/storyagent.js'
 import { createStoryAgentEngine } from '../src/services/agents/storyagent/agentEngine.js'
 import { createAuthoringStoryAgent } from '../src/services/agents/storyagent/authoringIntegration.js'
@@ -139,7 +139,7 @@ try {
 const extensionDir = await mkdtemp(path.join(tmpdir(), 'pinax-question-extension-'))
 try {
   await writeFile(path.join(extensionDir, 'package.json'), '{"type":"module"}')
-  for (const file of assistantRuntimeFiles) await copyFile(new URL(`../${file}`, import.meta.url), path.join(extensionDir, path.basename(file)))
+  copyAssistantRuntimeFiles(extensionDir)
   const { createAssistantTask, assistantToolGuard } = await import(pathToFileURL(path.join(extensionDir, 'assistantTask.js')).href)
   const task = createAssistantTask({ bookId: 'book-a', kernel: { blocks: [] }, assistantPolicy: { mode: 'read', bookId: 'book-a' } }, { domains: {} })
   const questionTool = task.tools.find(tool => tool.name === 'request_user_input')

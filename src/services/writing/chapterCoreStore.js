@@ -32,6 +32,30 @@ export function createBrowserChapterStore({
   loadBooks = loadWritingBooks,
   saveBooks = saveWritingBooksDurable
 } = {}) {
+  function persistMutation(book, mutate, value) {
+    const snapshot = JSON.parse(JSON.stringify(book))
+    const references = new Map((book.chapters || []).map(chapter => [String(chapter.id), chapter]))
+    const chapterList = book.chapters
+    const restore = () => {
+      for (const key of Object.keys(book)) delete book[key]
+      Object.assign(book, snapshot)
+      if (Array.isArray(chapterList)) {
+        const restored = (snapshot.chapters || []).map(saved => {
+          const target = references.get(String(saved.id)) || {}
+          for (const key of Object.keys(target)) delete target[key]
+          return Object.assign(target, saved)
+        })
+        chapterList.splice(0, chapterList.length, ...restored)
+        book.chapters = chapterList
+      }
+    }
+    try {
+      mutate()
+      const saved = saveBooks(value.books)
+      if (!saved?.ok) { restore(); return saveFailure(saved) }
+      return ok(value.record())
+    } catch (error) { restore(); return saveFailure({ error: String(error?.message || error) }) }
+  }
   return {
     list(bookId) {
       const book = findBook(loadBooks(), bookId)
@@ -57,14 +81,12 @@ export function createBrowserChapterStore({
       if (findChapter(book, record.id)) {
         return fail(CORE_ERROR_CODES.DUPLICATE_CHAPTER, '章节已存在', { bookId, chapterId: record.id })
       }
-      if (!Array.isArray(book.chapters)) book.chapters = []
-      // bookId 是 Core 的读取投影，不写进旧 writing_books 的章节形状。
-      const stored = { ...record }
-      delete stored.bookId
-      book.chapters.push(stored)
-      book.updatedAt = record.updatedAt
-      const saved = saveBooks(books)
-      return saved.ok ? ok(record) : saveFailure(saved)
+      return persistMutation(book, () => {
+        if (!Array.isArray(book.chapters)) book.chapters = []
+        const stored = { ...record }; delete stored.bookId
+        book.chapters.push(stored)
+        book.updatedAt = record.updatedAt
+      }, { books, record: () => record })
     },
 
     remove(bookId, chapterId, { expectedRevision } = {}) {
@@ -79,14 +101,10 @@ export function createBrowserChapterStore({
       if (actual !== expectedRevision) {
         return fail(CORE_ERROR_CODES.STALE_REVISION, '章节修订号已变化', { expected: expectedRevision, actual })
       }
-      chapters.splice(index, 1)
-      book.updatedAt = new Date().toISOString()
-      const saved = saveBooks(books)
-      if (!saved.ok) {
-        chapters.splice(index, 0, chapter)
-        return saveFailure(saved)
-      }
-      return ok(normalizeChapterRecord(chapter, { bookId }))
+      return persistMutation(book, () => {
+        chapters.splice(index, 1)
+        book.updatedAt = new Date().toISOString()
+      }, { books, record: () => normalizeChapterRecord(chapter, { bookId }) })
     },
 
     update(bookId, chapterId, patch, { expectedRevision } = {}) {
@@ -99,15 +117,11 @@ export function createBrowserChapterStore({
       const result = applyChapterPatch(chapter, patch, { expectedRevision, now: new Date().toISOString() })
       if (!result.ok) return result
       const next = result.value
-      // 原地更新，保持页面里的 chapter 引用不失效（Authoring 的当前章对象、
-      // 双栏和 observer 都持有同一个引用）；next 里没有的侧车字段要从原对象删掉。
-      for (const key of CHAPTER_SIDECAR_KEYS) {
-        if (!(key in next)) delete chapter[key]
-      }
-      Object.assign(chapter, next)
-      book.updatedAt = chapter.updatedAt
-      const saved = saveBooks(books)
-      return saved.ok ? ok(normalizeChapterRecord(chapter, { bookId })) : saveFailure(saved)
+      return persistMutation(book, () => {
+        for (const key of CHAPTER_SIDECAR_KEYS) if (!(key in next)) delete chapter[key]
+        Object.assign(chapter, next)
+        book.updatedAt = chapter.updatedAt
+      }, { books, record: () => normalizeChapterRecord(chapter, { bookId }) })
     }
   }
 }

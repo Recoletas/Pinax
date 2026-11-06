@@ -1,3 +1,4 @@
+import { acknowledgeAssistantReview } from '@pinax/core'
 import { entryDetailsText } from '../../../../shared/assistantEntryDetails.js'
 import { worldbookFoundation } from '../../worldbook/worldbookFoundation.js'
 import { matchWorldbookEntries } from '../../worldbook/worldbookContextBuilder.js'
@@ -155,21 +156,13 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       }
       if (acknowledge && !resolvingConflict) {
         if (String(getBook?.()?.id) !== proposal.bookId) return { ok: false, error: '作品已切换，请返回原作品。' }
-        if (acknowledge.action === 'finish-review') {
-          if (proposal.changes.some(change => !change.status || change.status === 'pending')) return { ok: false, error: '仍有未处理修改，审阅尚未结束。' }
-          const next = { ...proposal, reviewStatus: 'completed', reviewCompletedAt: Date.now() }
-          persistAssistantEdits([{ key: `assistant_edit_receipt:${proposal.id}`, after: next }], proposal.id)
-          Object.assign(proposal, next)
-          return { ok: true, status: next.status, reviewStatus: 'completed' }
-        }
-        const { kind, targetId } = acknowledge
-        const changes = proposal.changes.filter(change => change.kind === kind && change.targetId === targetId)
-        if (!changes.some(change => change.status === 'adopted') || changes.some(change => !change.status || change.status === 'pending')) return { ok: false, error: '请先采用修改，再完成确认。' }
-        const reviewedTargets = [...new Set([...(savedReceipt?.reviewedTargets || proposal.reviewedTargets || []), `${kind}:${targetId}`])]
-        const next = { ...proposal, reviewedTargets }
+        let next
+        try {
+          next = acknowledgeAssistantReview({ ...proposal, reviewedTargets: savedReceipt?.reviewedTargets || proposal.reviewedTargets || [] }, acknowledge)
+        } catch (error) { return { ok: false, error: error.message } }
         persistAssistantEdits([{ key: `assistant_edit_receipt:${proposal.id}`, after: next }], proposal.id)
         Object.assign(proposal, next)
-        return { ok: true, status: next.status }
+        return { ok: true, status: next.status, ...(next.reviewStatus ? { reviewStatus: next.reviewStatus } : {}) }
       }
       if (discard) {
         const result = applyAssistantProposal(proposal, { book: getBook(), worldbook: getWorldbook(), discard: true, changeIds })

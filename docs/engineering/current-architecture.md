@@ -9,6 +9,14 @@
 
 2026-11-05 数据层增量：新增独立的[本地项目 SQLite 派生目录](./project-catalog.md)代码与离线 CLI，尚未功能验证或接入运行中的服务。文件仍是本地项目事实源，浏览器持久化、MCP 与 RAG 链路未切换。
 
+## 2026-11-06 分工公共基线
+
+Web锁定独立`@pinax/core`0.9.0；来源commit及完整性见vendor/core/provenance。`packages/core/src`仅为历史测试路径转发，实际业务不再双份维护。权限/修改工具schema/条目属性来自Core子路径；运行器打包复制固定包合同并将实际交付字节纳入extension哈希，不依赖Host的node_modules。
+
+`assistantEditTransaction`只注入编辑器文档与人物卡投影，修改准备、原文定位、依赖、采纳/拒绝/撤销在Core中计算，Host仍负责实际授权与持久化后发布。审阅工作集和结束审阅决定也来自Core。Web助手沿原日志格式使用Core的journal协调器；章节适配器写入失败/抛错恢复内存、修订、侧车和列表/章节引用，保留作者尚未保存的输入。
+
+公共事务命令携带projectId/operationId与实体预期修订，Core负责版本和幂等决定；Host负责键布局、锁、实际持久化。日志是逆向补偿与回读确认，不宣称跨存储ACID。异步flush只有明确成功才发布durable，否则PERSISTENCE_PENDING，沿同操作恢复。完整Pi循环、传输、原生存储/文件事务和上下文业务编译仍归既有owner，不因抽包自动变为已共享。Pinix/Next应用页面未在本轮迁移，其平台接入可按三组分工推进。
+
 ## 1. 运行结构
 
 Pinax 是 Vue 3 工作区、浏览器本地数据和 Express 服务的组合。文本模型由独立 Storyflow / pi-agent 运行器提供，图片和视频使用各自的渠道适配器。

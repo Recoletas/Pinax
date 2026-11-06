@@ -6,15 +6,32 @@
 
 > 执行记录：M0 盘点见[共享业务内核 M0 盘点](./business-core-inventory-20261031.md)；首个章节 CRUD 切片已落到 `packages/core/` + `src/services/writing/chapterCoreStore.js` + `src/composables/useChapterCore.js`；Authoring 的“新建章/保存当前章/双栏保存/删除章/切章读取校验”均已走 Core（页面保存用同步 Service，移动/文件端保留异步 Service）。Core 合同测试 8/8、Web 侧 7/7，完整门禁 22/22 文件、215/215 用例。**跨仓共享形态已拍板：`@pinax/core` 作为独立 npm 包，三端引用打包产物——不复制源码、不用 monorepo、不用 submodule**（见 §9.5）。`core:pack` + `core:smoke` 已证明 tarball 可被另一个项目安装并运行章节 CRUD。**Pinix 已接入**：`package.json` 以 `file:` 引用 tarball，`src/services/writing/chapterCoreStore.js` 的 `createNativeChapterStore` 消费 `@pinax/core`，`chapterCoreStore.test.js` 7/7 通过、eslint 0 问题（Pinix `npm install --ignore-scripts` 后 `vitest run` 该文件 exit 0）；Next 尚未加依赖，未迁移数据。**保存语义已收口**：revision 递增、content-only 清 `editorDocument`、乐观并发上提为 Core 的 `applyChapterPatch`（`domain/chapterPatch.js`，6 合同测试）；Web、Pinix 与 Core 自带内存参照适配器三处 store 的 `update` 均调用它（并修掉内存适配器过去只清 `editorDocument`、不清 `editorDocumentSchemaVersion` 的漂移）。Web `verify:contract` 23 文件/221 用例 exit 0、build+architecture:check exit 0，Pinix 目标测试 7/7，`test:core` 14/14。**独立仓库路线（已推送）**：Core 抽出为**私有**仓库 `github.com/Recoletas/pinax-core`（`@pinax/core` v0.1.0），`/home/livid/pinax-core` 已 `git init`+首提交 `955a807`+`tag v0.1.0` 并推到 `origin/main`（含 `src`/`test`/独立 `package.json`/`vitest.config.js`/`consumer-smoke`/`README`/`CHANGELOG`，`private:true`，发布配置未写）。本机独立验证 `npm test 14/14`+`pack`+`smoke` 全绿。**SSH 坑（已修）**：`~/bin/ssh` 原把所有 ssh 强推 2222 → github 超时；现仅 amd-radeon 走 2222、其余透传真 ssh（备份 `~/bin/ssh.bak.20261101`）。git 走 github 不再需要 `GIT_SSH_COMMAND`。仍待办：`publishConfig`/发 npm 包、三端 tarball 源切到独立仓库、`packages/core` 从主仓退役。当前 Core 覆盖范围 = 写作两级（书+章节）+ 世界书条目 + 大纲（节点+边+重排环检测）+ 笔记 + **资料**（v0.8.0;kind/status 白名单、标题回退24字、contentHash 去重,图片/证据/合并未建模;书/世界书/大纲/笔记/资料尚未接进任何 Host）；边端点存在性跨表校验、资料的图片/证据/合并、漫画、体验、记忆、Agent/上下文/工具与跨端迁移仍是后续切片。README 已明确「当前是章节切片，非完整 Core」「无依赖 = 平台无关，不是零功能/零体积」。
 
+## 分工前置基线（2026-11-06）
+
+独立 `@pinax/core` **0.9.0** 已实施公共写入与修改决定；Web已消费实际包，旧 `packages/core/src` 仅转发至该包，不再是第二实现。包来源与校验见 `vendor/core/*.provenance.json`。下面是当前三组开工合同，不要求先迁完全部领域或三端页面。
+
+| 公共接口 | 已实施内容 | 组员接入责任 |
+|---|---|---|
+| 领域 Service / Store | 作品、章节、设定条目、大纲、笔记、资料；合入大纲端点存在性检查 | A提供平台存储；B调用服务。图片/归档/素材的语义不能仅凭名字强行合并 |
+| `createProjectTransactionService` | projectId、operationId、entityType/entityId、expectedRevision；统一修订和幂等回执 | A提供明确隔离的key映射、持久化及平台并发锁；不把多个普通Store调用宣称为原子事务 |
+| `createJournaledWriteStore` | 写前日志、回读确认、失败逆向补偿、崩溃恢复；可带expected快照 | Web助手现有多键采用已接此Core协调器，保留原日志格式；跨介质不是ACID |
+| `createDurableTransactionService` | 异步flush明确成功后才确认durable，失败返回PERSISTENCE_PENDING，重试同操作不重复增修订 | A对接移动镜像/文件fsync；UI等待结果，失败保留草稿与重试入口 |
+| `createAssistantProposalEngine` | 冻结/定位、依赖、冲突、采纳、拒绝、撤销及保护快照计算 | B提供编辑器和人物卡投影；所有正式保存通过Host事务，不允许直接把计算结果当已保存 |
+| 审阅与权限合同 | 已处理决定、去重、结束审阅、权限判断、工具schema与富关系归一 | Web已调用；运行器候选包携带同一固定Core合同，不依赖开发仓库的node_modules |
+
+**三组第一批任务**：A把持久化/恢复/备份适配接到公共接口；B完成移动编辑器、章节组织与审阅呈现；C先交付一个完整媒体生成→保存→重开→失败恢复流程，随后持续承担漫画/视频等方向。任务按方向分工，后续功能属于各方向的长期范围，并非取消。跨组共享合同、版本与集成由维护者负责。
+
+尚未承诺：Pinix/Next的所有页面和存储均已切包；模型循环/网络/平台恢复整体进Core；历史迁移和全部媒体对象都已建模。本轮核心基线可供三组开发，Host迁移本身属于后续分工，不用为它继续复制旧业务规则。完整共享Harness仍按下面计划渐进抽取；已有Pi循环作为运行器适配继续使用。
+
 ## 当前执行批次：先收口依赖，再收口事务与 Harness（2026-11-05）
 
 作者将后续工作重心明确为底层分离。执行顺序如下；下表区分已经实施与后续设计，不把导出接口当作 Host 已接入。
 
 | 顺序 | 范围 | 当前结果 / 下一交付 |
 |---|---|---|
-| 1 | 独立包消费 | Web 章节 adapter/composable 与离线 Catalog 改为引用 `@pinax/core` 0.8.0；固定 tarball、来源记录及 lockfile 已写入。未做功能验证 |
-| 2 | 统一写入事务 | 待实现：Core 定义修订检查、操作身份与 durable commit/失败语义；Host adapter 负责实际原子落盘和恢复。先贯通章节，再接大纲与设定 |
-| 3 | 共享 Harness | 待抽取：会话与任务身份、权限/能力、工具调用、proposal 工作集、采纳/拒绝/撤销/审阅完成状态机；界面只订阅状态和发命令 |
+| 1 | 独立包消费 | Web 章节 adapter/composable 与离线 Catalog 改为引用 `@pinax/core` 0.8.0；固定 tarball、来源记录及 lockfile 已写入。11-06已更新0.9.0并执行包消费验证 |
+| 2 | 统一写入事务 | 公共合同/日志协调/幂等回执及durable flush门面已实施；Web助手已接共享日志。各Host真实原子落盘、跨进程锁与各领域Store接入仍由适配器负责 |
+| 3 | 共享 Harness | 权限/工具合同、proposal计算与工作集、采纳/拒绝/撤销/审阅完成决定已抽取并接Web；Pi会话循环、上下文业务编译与运行任务编排仍留原owner待后续迁移 |
 | 4 | 三端适配 | Pinix NativeChapterStore 已有旧切片，页面接入待核对；Next 文件 carrier 尚未统一。本轮未修改这两个仓库 |
 | 5 | 官方扩展合同 | 待设计：视图/工具/供应商/导入导出适配的注册与能力声明；不绕过 Core 写入，不允许插件直接操作 Host 存储键 |
 
@@ -26,9 +43,9 @@ Harness 抽取先分离纯状态机和业务命令，再接内容/事务/模型/
 
 官方插件先做可信、随发行交付的模块；通用写作业务语义保留在 Core，可选工具与视图通过扩展合同注册。哪些现有功能要拆成可选插件仍需逐域决定；本轮没有建立插件市场或任意代码加载器。
 
-旧 `packages/core` 的三处大纲校验 WIP 及历史合同用例保留待移交，不再作为应用依赖。未删除旧目录，不代表还允许继续作为第二业务实现演进。
+旧 `packages/core` 的大纲校验已移交独立包，src已退为转发兼容层；历史合同用例暂留作实际包消费回归，不再允许作为第二业务实现演进。
 
-本批次只完成固定包消费和抽取边界整理，未做测试/构建/门禁、数据迁移、服务重启或部署。
+11-05历史记录：当轮只完成固定包消费和抽取边界整理，未做测试/构建/门禁、数据迁移、服务重启或部署。11-06已按上文验证公共基线，不再用这条历史记录表示当前未验证。
 
 ## 1. 目标与范围
 

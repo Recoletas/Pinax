@@ -1,9 +1,9 @@
 {
-  "name": "@pinax/core",
+  "name": "@pinax/core-compat-tests",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Pinax platform-neutral business core (seed)",
+  "description": "Historical Core test compatibility shims; not a distribution package",
   "files": [
     "src",
     "README.md",
