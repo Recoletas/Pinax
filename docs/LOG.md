@@ -20,6 +20,12 @@ Pinix旧章节修订需从editorDocument冻结；沿用Web规则，不再复制�
 
 本批验证：Web verify:full exit0（30/290，包体1406553）；Pinix verify:full exit0（20/200，包体1409882），mobile:check 22/22及mobile:sync exit0（本地资源构建+Capacitor Android同步）；Next verify:next exit0（819内核、238界面、lint零警告、打包全过）。新UI用例实际切项目并等待旧回答，返回原项目仍可见；Node用例验证原根写回/未知根拒写；Pinix原3用例内补入延迟确认/切章/失败重试断言，不扩预算。Core85项、124模块独立导入、静态检查与隔离包消费通过（载体写入、原生失败/重试、JSONL重开）。无Java/JDK，未构建APK或真机验收；没有调用付费模型、改用户数据、重启或部署。0.11由clean-source打包并带来源回执；本批Host接线本地集中提交，未推送。全量迁移仍需后续接齐上文列出的协议与领域，不把本批完成说成整体完成。
 
+0.12接续：独立Core提交`8b046d0`（39文件/9770行），将世界书完整状态/动作与归一/迁移、文件双写协调迁入`worldbook/*`，Web/Pinix原`worldStore`只绑定Pinia与平台端口。结构化设置/人物卡/地点合同共享；地图投影函数仍注入，未改地图生成或渲染。移动端明确不具备localmirror文件源，继续原生快照。记忆候选全流程、历史outbox、压缩/来源与事实/角色知情/时序/证据审计/回执/查询/备份迁入`memory/*`；数据库事务、ID工厂和浏览器事件留Host。沿用逻辑表与作者裁决语义，不把旧记忆自动变正式事实。
+
+修复真实数据库接缝：历史先前只声明v1，而事实账本已有v4；两端历史现在走同一个`openLedgerDb`，历史与事实共存。隔离浏览器先打开v4再写/读209条历史，刷新、不可变导入、备份往返、quota和范围隔离通过；事实账本数据旅程1059行/1001回执、事实确认/更正与1440/390界面通过。原ledger smoke未固定中文locale导致中文按钮定位失败，已固定locale；独立测试无本机API，capabilities使用明确offline fixture，不过滤真实console错误。首次新深导入触发Vite优化重载，稳定后复跑成功。Pinix旧快照断言未包含已存在的资料升条目规则，按Web既有断言补source条目，保留纯读不落盘/不切active等验证，不增减200预算。
+
+验证：Web verify:full exit0（30/290、包体1406576），Pinix verify:full exit0（20/200、包体1409682）；Next verify:next exit0（819内核/238界面、lint/打包）。Core85用例、158模块导入与静态检查、隔离安装无Pinia库CRUD/幂等条目及归档失败保留outbox通过；世界书迁移34项/双写47项/结算109断言通过。移动本地构建与Capacitor Android同步通过，APK/真机未验。已查看隔离账本桌面/手机截图并清理4张图，临时5307停止，现用服务、作品和模型配置未动。由清洁提交生成0.12固定产物及来源回执，三端同包；本批Host集中本地提交，未推送部署。全量余项仍是两种运行协议与媒体二进制等平台接线。
+
 ## 2026-11-06 分工前置公共基线
 
 - 独立仓库`/home/recoletas/jiuguan/pinax-core`升级0.9.0，源码commit `5e429bc`：修改计算引擎注入文档/人物投影与ID；共享审阅工作集、完成审阅、权限、工具schema及富关系合同；日志写入、恢复、expected快照及幂等回执；project/entity/revision/operation命令和明确flush确认。失败不确认durable，重试不重复增修订。加入两项综合合同用例，独立测试85/85、包安装消费smoke通过；显式ESLint API扫描独立src/test无错误。大纲端点校验WIP已移交。

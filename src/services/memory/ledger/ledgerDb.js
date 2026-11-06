@@ -1,52 +1,13 @@
 import Dexie from 'dexie'
-import { MEMORY_HISTORY_DB } from '../memoryHistoryStore'
+import { MEMORY_HISTORY_DB } from '@pinax/core/memory/ledgerSchema'
 import { LEDGER_SCHEMA_VERSION } from './ledgerContract'
 
 // The fact ledger lives in the SAME controlled Dexie database as the v1
 // revision history: one browser database, cross-table transactions stay real.
 // v1 `revisions` keeps its exact original declaration; upgrade only adds
 // tables and never rewrites or deletes v1 rows.
-export const LEDGER_V1_TABLES = { revisions: 'id, candidateId' }
-
-export const LEDGER_V2_TABLES = {
-  revisions: 'id, candidateId',
-  evidenceSnapshots: 'id, scopeKey, sourceId, [scopeKey+sourceId]',
-  factProposals: 'id, scopeKey, status, fingerprint, [scopeKey+status]',
-  factVersions: 'id, scopeKey, factKey, [scopeKey+factKey], [scopeKey+subjectKey], [scopeKey+recordedSeq]',
-  factDecisions: 'id, scopeKey, commandId, [scopeKey+recordedSeq]',
-  rejectionMarks: 'id, scopeKey, fingerprint, [scopeKey+fingerprint]',
-  ledgerMeta: 'id',
-  turnReceipts: 'receiptId, scopeKey, commandId, turnId, [scopeKey+archivedSeq]'
-}
-
-// G1: index-only upgrade. The extra compound index powers bounded newest-
-// first per-subject walks; row shapes, LEDGER_SCHEMA_VERSION and backup
-// packages are unchanged, so old exports import unchanged and no data is
-// rewritten (Dexie only reindexes). An OLDER app build opening this database
-// fails open typed (VersionError) instead of mis-reading it.
-export const LEDGER_V3_TABLES = {
-  ...LEDGER_V2_TABLES,
-  factVersions: 'id, scopeKey, factKey, [scopeKey+factKey], [scopeKey+subjectKey], [scopeKey+recordedSeq], [scopeKey+subjectKey+recordedSeq]'
-}
-
-// M08: knowledge events (角色获知) as an APPEND-ONLY table — 获知与信念状态
-// 转移（M09）都是事件，绝不原地改。加表不加列：旧备份包不受影响（账本域
-// 导出表清单在 ledgerBackup 的 LEDGER_TABLE_KEYS 中另行登记）。
-export const LEDGER_V4_TABLES = {
-  ...LEDGER_V3_TABLES,
-  knowledgeEvents: 'id, scopeKey, actorKey, factVersionId, recordedSeq, [scopeKey+actorKey], [scopeKey+actorKey+recordedSeq], [scopeKey+factVersionId]'
-}
-
-export const LEDGER_TX_TABLES = [
-  'evidenceSnapshots',
-  'factProposals',
-  'factVersions',
-  'factDecisions',
-  'rejectionMarks',
-  'ledgerMeta',
-  'knowledgeEvents'
-]
-
+import { LEDGER_V1_TABLES, LEDGER_V2_TABLES, LEDGER_V3_TABLES, LEDGER_V4_TABLES, LEDGER_TX_TABLES } from '@pinax/core/memory/ledgerSchema'
+export { LEDGER_V1_TABLES, LEDGER_V2_TABLES, LEDGER_V3_TABLES, LEDGER_V4_TABLES, LEDGER_TX_TABLES }
 const SCHEMA_META_ID = 'schema'
 
 export function createLedgerDb(name = MEMORY_HISTORY_DB) {

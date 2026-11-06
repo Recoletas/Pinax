@@ -5,6 +5,8 @@ import assert from 'node:assert/strict'
 const browser = await chromium.launch({ headless: true })
 try {
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
+  // This is a local IndexedDB fixture, with no localmirror server or provider.
+  await page.route('**/api/localmirror/capabilities', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'ISOLATED_OFFLINE_FIXTURE' }) }))
   await page.goto(process.env.PINAX_SMOKE_URL || 'http://127.0.0.1:5173')
   await page.waitForSelector('.authoring-welcome')
   const result = await page.evaluate(async () => {
@@ -12,6 +14,10 @@ try {
     const h = await import('/src/services/memory/memoryHistoryStore.js')
     const b = await import('/src/services/storage/workspaceBackupBundle.js')
     const check = (condition, message) => { if (!condition) throw new Error(message) }
+    const ledgerDb = await import('/src/services/memory/ledger/ledgerDb.js')
+    const opened = await ledgerDb.openLedgerDb()
+    check(opened.ok && opened.db.verno === 4, 'history must coexist with current ledger schema')
+    ledgerDb.closeLedgerDb(opened.db)
     const base = { id: 'history-smoke', content: '钟楼尚未开放。', scope: 'project', scopeId: 'book-smoke',
       sourceRefs: ['chapter:smoke:unit:1'], sourceRevision: 'r1' }
     m.queueMemoryCandidate(base)
@@ -67,7 +73,7 @@ try {
     try { check(m.updateMemoryCandidate(base.id, { content: '不能落盘的变更' }) === null, 'quota fake success') }
     finally { Storage.prototype.setItem = oldSet }
     check((await h.readMemoryHistory()).length === 209, 'failed write polluted history')
-    return { revisions: 209, zipBytes: zip.bytes.length }
+    return { revisions: 209, zipBytes: zip.bytes.length, schemaCoexistence: true }
   })
   await page.reload()
   assert.equal(await page.locator('.memory-indicator').count(), 0)

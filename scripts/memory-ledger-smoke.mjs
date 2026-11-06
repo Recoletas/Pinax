@@ -8,9 +8,11 @@ const BASE_URL = process.env.PINAX_LEDGER_SMOKE_URL || 'http://127.0.0.1:5179'
 const browser = await chromium.launch({ headless: true })
 const consoleErrors = []
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
   page.on('console', msg => { if (msg.type() === 'error') consoleErrors.push(msg.text()) })
   page.on('pageerror', error => consoleErrors.push(`pageerror: ${error.message}`))
+  // This is a local IndexedDB fixture, with no localmirror server or provider.
+  await page.route('**/api/localmirror/capabilities', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'ISOLATED_OFFLINE_FIXTURE' }) }))
   await page.goto(BASE_URL)
   await page.waitForSelector('.authoring-welcome')
 
