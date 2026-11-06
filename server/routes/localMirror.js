@@ -17,6 +17,7 @@ import express from 'express'
 import { createLocalMirrorService } from '../services/localMirrorService.js'
 import { startFolderPick, getFolderPickResult } from '../services/nativeFolderPicker.js'
 import { runProjectCatalog } from '../services/projectCatalogService.js'
+import { runFileProjectCommand } from '../services/fileProjectCommands.js'
 
 export function createLocalMirrorRouter({ service = createLocalMirrorService() } = {}) {
   const router = express.Router()
@@ -59,6 +60,16 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
     } finally {
       req.removeListener('aborted', abort)
       res.removeListener('close', closed)
+    }
+  })
+
+  router.post('/core-operation', async (req, res) => {
+    try {
+      const result = await runFileProjectCommand(req.body, { service })
+      return res.status(result.ok ? 200 : 409).json(result)
+    } catch (error) {
+      const status = error.code === 'ERR_LOCAL_ONLY' ? 403 : error.code === 'ERR_INVALID_INPUT' ? 400 : 409
+      return res.status(status).json({ ok: false, error: { code: error.code || 'IO_FAILED', message: error.message } })
     }
   })
 

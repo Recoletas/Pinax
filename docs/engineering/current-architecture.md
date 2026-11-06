@@ -251,3 +251,11 @@ Pinax 是 Vue 3 工作区、浏览器本地数据和 Express 服务的组合。�
 完整回合协调器仍是正文、快照、状态提取、回执与最终保存的唯一事务入口。失败/取消恢复、旧请求owner校验、分支可见性和显式重试保留。检定先耐久保存再叙述；归档使用冻结scope/receipt，成功确认前保留outbox。历史端口和活动任务按各Host工厂隔离；锁与RNG经能力注入，不在Core访问navigator或crypto。
 
 主Pinax保留原模型/Pi可选通道、提示快照与请求记录；Pinix保留自身叙事通道，不为共享运行时新增Web专用Pi依赖。Pinix移除继承旧版的硬编码输出长度，并使用共享跑团场景上下文。未改提示词文风、作者正文或现有UI。运行验证与证据边界见STATUS/LOG，SQLite正式文件写入适配与设备验收另列。
+
+## 2026-11-06 Node 正式文件 Host
+
+[文件 Store 与操作接口](./project-file-stores.md)提供六类Core Store和大纲边的Node文件参考实现。项目正文/设定/大纲复用localMirror事务；全局笔记/素材使用显式指定的集合文件和Core日志协调器，不映射项目构思或来源归档。BookStore只在Host已创建绑定的目录操作，移除仅取消登记。
+
+镜像meta.json保留文档ID/修订/侧车及未知字段，正文仍来自Markdown。MCP章节标题/顺序和SQLite稳定ID投影复用该绑定；元数据变化也会触发派生目录过期。正式文件操作入口是local-only的POST /api/localmirror/core-operation，携带文件快照和稳定operationId，不改MCP提案权限。
+
+现有浏览器保存模式未自动切换，Pinix/Next与Core包本轮未改。Windows/移动、真实模型及独立进程并发写入仍未验收；默认存储切换、原生适配和性能优化由平台/界面分工继续。

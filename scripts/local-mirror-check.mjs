@@ -14,7 +14,8 @@ let passed = 0
 const check = (name, condition) => { assert.ok(condition, name); passed += 1; console.log(`  ✓ ${name}`) }
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-mirror-check-'))
-const service = createLocalMirrorService({ rootPath: root, now: () => '2026-10-06T00:00:00.000Z' })
+process.once('exit', () => fs.rmSync(root, { recursive: true, force: true }))
+const service = createLocalMirrorService({ rootPath: root, appDataPath: path.join(root, 'appdata'), now: () => '2026-10-06T00:00:00.000Z' })
 
 console.log('[1] 位置解析：env 覆盖 > Documents/Pinax 缺省')
 process.env.PINAX_MIRROR_ROOT = ''
@@ -124,9 +125,9 @@ const indexPath = service.writeProjectIndex([
 check('索引写在 app-data（注册表旁）', path.dirname(indexPath) === service.resolveAppDataDir() && JSON.parse(fs.readFileSync(indexPath, 'utf-8')).projects.length === 2)
 
 console.log('[9] 项目标准范式 pinax-project@1：任意位置项目 + 注册表')
-const appData = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-appdata-'))
+const appData = path.join(root, 'registry')
 const paradigmService = createLocalMirrorService({ rootPath: root, appDataPath: appData })
-const novelRoot = path.join(os.tmpdir(), 'pinax-proj-novel-')
+const novelRoot = path.join(root, 'project-novel')
 fs.rmSync(novelRoot, { recursive: true, force: true })
 const created = paradigmService.createProjectAt({ rootPath: novelRoot, name: '雾港纪事', kind: 'novel', bookId: 'book_logs_001' })
 check('marker 落盘且 spec 正确', JSON.parse(fs.readFileSync(path.join(novelRoot, '.pinax', 'project.json'), 'utf-8')).spec === 'pinax-project@1')
@@ -137,11 +138,11 @@ check('open 校验 marker 并刷新注册表', reopened.manifest.projectId === c
 const boundSync = paradigmService.mirrorBook({ ...logsPayload, book: { ...logsPayload.book, id: 'book_logs_001' } })
 check('绑定项目同步落到项目根（非文档根）', boundSync.projectRoot === path.resolve(novelRoot) && fs.existsSync(path.join(novelRoot, 'meta.json')))
 check('项目根内含 @2 全布局', fs.existsSync(path.join(novelRoot, '世界书')) && fs.existsSync(path.join(novelRoot, '日志', '助手对话')))
-const screenplayRoot = path.join(os.tmpdir(), 'pinax-proj-screenplay-')
+const screenplayRoot = path.join(root, 'project-screenplay')
 fs.rmSync(screenplayRoot, { recursive: true, force: true })
 paradigmService.createProjectAt({ rootPath: screenplayRoot, name: '夜航剧本', kind: 'screenplay' })
 check('screenplay 模板目录齐全', ['剧本', '人物', '场景', '大纲', '世界书', '资料', '日志', '约束'].every((dir) => fs.existsSync(path.join(screenplayRoot, dir))))
-const genericRoot = path.join(os.tmpdir(), 'pinax-proj-generic-')
+const genericRoot = path.join(root, 'project-generic')
 fs.rmSync(genericRoot, { recursive: true, force: true })
 paradigmService.createProjectAt({ rootPath: genericRoot, name: '杂项', kind: 'generic' })
 check('generic 模板目录齐全', ['文档', '资料', '日志', '约束'].every((dir) => fs.existsSync(path.join(genericRoot, dir))))
@@ -210,7 +211,8 @@ paradigmService.setProjectBinding({ projectId: fallbackRoot.manifest.projectId, 
 const ruleFilesByBook = paradigmService.readRuleFilesForBook('book_rules_001')
 check('按 bookId 解析注册表绑定读约束', ruleFilesByBook.files.length === 3 && ruleFilesByBook.dir === ruleDir)
 check('未绑定 bookId fail-open 空集', paradigmService.readRuleFilesForBook('book_missing').files.length === 0)
-const emptyRuleRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-no-rules-'))
+const emptyRuleRoot = path.join(root, 'no-rules')
+fs.mkdirSync(emptyRuleRoot, { recursive: true })
 const noRulesResult = paradigmService.readRuleFiles(emptyRuleRoot)
 check('无约束目录返回空集（不抛错）', noRulesResult.files.length === 0 && noRulesResult.dir === null)
 // 约束目录不在 MANAGED_SUBDIRS：同步重建托管子目录，但不触碰用户手写约束。

@@ -1,7 +1,7 @@
 # Pinax 共享业务内核统一计划（Web / Pinix / Next）
 
 日期：2026-10-31  
-状态：执行中（主Pinax Core迁移，尚未全部完成）  
+状态：Core公共基线及Node文件参考Host已落地；端侧迁移与验收继续  
 目标读者：主Pinax与Pinix维护者；Next仅保留历史对照
 
 > 当前范围更正（2026-11-06）：主Pinax的Core抽取及Pinix复用；暂停Next适配工作。0.13的已实现模块和历史验证保留，但“全部分工前置完成”结论撤回。0.14已抽取媒体、0.15资料归档/解析、0.16体验/跑团；SQLite启用属于单独的平台接线。平台IO/网络/SDK保留在Host。
@@ -32,10 +32,12 @@
 | 当前核对范围 | 代码入口 | 结果与边界 |
 |---|---|---|
 | 体验与跑团 | Core `experience/`；Host `gameStore`和原服务路径 | 已抽取并在两端实际消费，不再列为待抽取；Host保留状态容器和平台能力。两端315项跑团、20项会话矩阵与真实浏览器恢复旅程通过，非真实模型质量证据 |
-| SQLite应用接线 | `projectCatalogService` Worker、`/api/localmirror/catalog`、MCP `pinax_project_catalog` | 已接本地应用读/显式同步：新鲜度/版本检查、命中来源和状态卡；不改文件事实源、Electron表或RAG。六Store正式文件写入适配与设备验收仍由平台方向继续 |
+| SQLite应用接线 | `projectCatalogService` Worker、`/api/localmirror/catalog`、MCP `pinax_project_catalog` | 已接本地应用读/显式同步：新鲜度/版本检查、命中来源和状态卡；不改文件事实源、Electron表或RAG。六类Store及大纲边已有Node文件参考实现和本地操作入口；现有UI默认存储切换、原生适配与设备验收由平台/界面方向继续 |
 | 后续交付验收 | 各Host与组员任务 | 跨设备/真机/真实模型和平台存储接线单列，不因共享包可导入而自动完成；Next按作者要求暂停 |
 
 前面已列业务批次现已通过实际Host接线；这不等于所有平台迁移、后续功能或产品验收完成。后续按原A/B/C方向分工，避免继续用“抽Core”承包新的功能建设。
+
+当前Node文件参考Host：`fileProjectStores`（章节/设定/大纲与边）、`fileBookStore`（已绑定项目的作品）、`fileCollectionStores`（独立笔记/素材集合），具体读写/回执/恢复合同见[文件Store](../engineering/project-file-stores.md)。复用Core用例及既有mirror事务，不新增第二份业务模型。此时可以按已定A/B/C接口分工；默认UI存储切换、原生实现和实际产品验收是各方向交付，不继续混同为Core尚未抽完。
 
 ## 历史执行顺序（2026-11-05，当前范围以上表为准）
 

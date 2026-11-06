@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { parseDocumentMetadata } from './projectDocumentMetadata.js'
 import { catalogError, digest, parseSource, readSource, safePath, scanSources } from './projectCatalog/sources.js'
 
 const schema = fs.readFileSync(new URL('./projectCatalog/schema.sql', import.meta.url), 'utf8')
@@ -69,18 +70,25 @@ export function openProjectCatalog(rootPath, { readOnly = false, expectedProject
       return transaction(() => {
         const previous = new Map(storedFiles().map(file => [file.relative_path, file]))
         const files = scanSources(root)
+        const metadataFile = files.find(file => file.relative === 'meta.json')
+        const metadataSource = metadataFile ? readSource(root, metadataFile) : null
+        let metadata = null
+        try { metadata = metadataSource ? parseDocumentMetadata(metadataSource.text) : null }
+        catch (error) { throw catalogError('CATALOG_METADATA_INVALID', error.message, { path: 'meta.json' }) }
+        const metadataChanged = (previous.get('meta.json')?.content_hash || null) !== (metadataSource?.hash || null)
         const changed = []
         const touched = []
         let read = 0
         const warningsByFile = JSON.parse(meta('warnings') || '{}')
         for (const file of files) {
           const old = previous.get(file.relative)
-          if (!verifyContent && old?.fingerprint === file.fingerprint) continue
-          const source = readSource(root, file)
+          const dependentChanged = metadataChanged && /^(正文|构思)\//.test(file.relative)
+          if (!verifyContent && !dependentChanged && old?.fingerprint === file.fingerprint) continue
+          const source = file.relative === 'meta.json' ? metadataSource : readSource(root, file)
           read++
-          if (old?.content_hash === source.hash) { touched.push(file); continue }
+          if (!dependentChanged && old?.content_hash === source.hash) { touched.push(file); continue }
           let parsed
-          try { parsed = parseSource(file.relative, source.text) } catch (error) {
+          try { parsed = parseSource(file.relative, source.text, { metadata }) } catch (error) {
             throw catalogError(error.code || 'CATALOG_PARSE', error.message, { path: file.relative, ...error.details })
           }
           changed.push({ ...file, ...source, ...parsed, revision: Number(old?.revision || 0) + 1 })

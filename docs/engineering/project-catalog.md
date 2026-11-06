@@ -14,15 +14,15 @@
 
 | 文件来源 | kind | 身份 |
 | --- | --- | --- |
-| `正文/**/*.md\|txt` | `chapter` | 相对路径，不伪造浏览器 chapter ID |
+| `正文/**/*.md\|txt` | `chapter` | 有明确文档身份绑定时复用ID；旧文件用相对路径 |
 | `世界书/**/*.md\|txt` | `worldbook-entry` | 复用世界书契约 entry ID；辅助文本或不合契约的文本按 `document` 收录并给 warning |
 | `大纲/outline.json` | `outline-node` / `outline-edge` | Core 规范化；旧边无 ID 时仅在投影中赋确定性索引 ID |
-| `构思/**/*.md\|txt` | `exploration` | 相对路径，不冒充全局笔记 |
+| `构思/**/*.md\|txt` | `exploration` | 有绑定时复用构思ID，否则相对路径；不冒充全局笔记 |
 | `资料/**/*.md\|txt` | `material-file` | 相对路径，不冒充 narrative asset |
 | `资料/归档/*.json` | `source-document` | docId，索引 chunk 原文并保留 meta |
 | `约束/`、`规则/`、`文风/` 文本 | `rule` | 各自相对路径，不自动合并旧新规则目录 |
 
-其余 JSON、二进制附件不收录。大纲概览文本可检索，不据此生成节点。无显式 ID 的文本改名时按删除旧路径、加入新路径处理。重复世界书 ID、不合法大纲/归档、缺失边端点、自环、重复有向同 kind 边会拒绝同步并回滚目录事务，保留旧目录，不自动修原文件。
+`meta.json`作为文档身份依赖参与新鲜度检查，不生成独立内容条目；身份或标题变化会重算相关正文/构思投影。其余 JSON、二进制附件不收录。大纲概览文本可检索，不据此生成节点。无显式 ID 的文本改名时按删除旧路径、加入新路径处理。重复世界书 ID、不合法大纲/归档、缺失边端点、自环、重复有向同 kind 边会拒绝同步并回滚目录事务，保留旧目录，不自动修原文件。
 
 ## 应用入口
 
@@ -69,4 +69,4 @@ node scripts/project-catalog.mjs sync /absolute/project/path --verify-content
 
 `npm run smoke:project-catalog`已加入CI回归；本轮使用隔离合成项目，实际验证 Worker、HTTP、官方 MCP SDK 查询、显式同步、短词/FTS、过期与修订拒绝、失败回滚、并发同步、取消、公网拒绝及状态卡读前读后的文件哈希/mtime不变。它不调用真实模型，也没有操作作者项目。
 
-尚未实施六个 Core Store 的正式文件写入适配、Electron driver 迁移或目录视图 UI。不要把 `catalog_*` 写入包装成正文/设定保存。这些属于后续平台工作；本批交付的是可实际调用的本地目录检索与同步入口。
+六类 Core Store（含大纲边）的Node文件参考实现和正式本地操作入口已见[文件Store](./project-file-stores.md)。Electron driver迁移、现有UI默认存储切换与目录视图UI仍未实施。不要把 `catalog_*` 写入包装成正文/设定保存。这些属于后续平台工作；本批交付的是可实际调用的本地目录检索与同步入口。

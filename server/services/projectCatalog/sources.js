@@ -3,10 +3,11 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { parseWorldbookEntryFile } from '../../../shared/worldbookFileContract.js'
 import { normalizeOutlineNode, normalizeOutlineEdge } from '@pinax/core'
+import { readBoundDocument } from '../projectDocumentMetadata.js'
 
 export const catalogError = (code, message, details) => Object.assign(new Error(message), { code, details })
 export const digest = value => createHash('sha256').update(value).digest('hex')
-const directories = ['正文', '世界书', '大纲', '构思', '资料', '约束', '规则', '文风']
+const directories = ['正文', '世界书', '大纲', '构思', '资料', '约束', '规则', '文风', 'meta.json']
 const maxFileBytes = 16 * 1024 * 1024
 const maxTotalBytes = 64 * 1024 * 1024
 const worldbookAuxiliary = new Set(['世界书/纪律.md', '世界书/伏笔/台账.md', '世界书/底牌/暗线底牌.md', '世界书/编年/章账.md'])
@@ -49,7 +50,7 @@ export function scanSources(root) {
       for (const name of fs.readdirSync(path.join(root, relative)).sort()) walk(`${relative}/${name}`, depth + 1)
       return
     }
-    if (!stat.isFile() || !/\.(md|txt)$/i.test(relative) && relative !== '大纲/outline.json' && !/^资料\/归档\/[^/]+\.json$/.test(relative)) return
+    if (!stat.isFile() || !/\.(md|txt)$/i.test(relative) && relative !== '大纲/outline.json' && relative !== 'meta.json' && !/^资料\/归档\/[^/]+\.json$/.test(relative)) return
     bytes += Number(stat.size)
     if (stat.size > BigInt(maxFileBytes) || bytes > maxTotalBytes || files.length >= 2000) {
       throw catalogError('CATALOG_LIMIT', '超过目录容量（单文件 16MB / 总计 64MB / 2000 文件）')
@@ -82,12 +83,19 @@ function record(kind, id, title, content, data = {}) {
   return { kind, id, title: String(title || ''), content: String(content || ''), tags, data: { ...data, id } }
 }
 
-export function parseSource(relative, text) {
+export function parseSource(relative, text, { metadata = null } = {}) {
   const content = text.replace(/\r\n/g, '\n')
   const title = titleOf(relative)
-  // File-backed plain text has a path identity. Never invent the browser book's
-  // chapter/note IDs or equate an exploration document to a global NoteStore note.
-  if (relative.startsWith('正文/')) return { items: [record('chapter', relative, title, content, { title, content, contentFormat: 'md' })], warnings: [] }
+  if (relative === 'meta.json') return { items: [], warnings: [] }
+  // Stable IDs come only from explicit source metadata. Older files keep path
+  // identity; project ideas never become global NoteStore notes.
+  if (relative.startsWith('正文/') || relative.startsWith('构思/')) {
+    const chapter = relative.startsWith('正文/')
+    const bindings = chapter ? metadata?.chapterFiles : metadata?.explorationFiles
+    const binding = bindings?.[path.posix.basename(relative)]
+    const value = readBoundDocument(text, binding, { id: relative, title, contentFormat: 'md' }, { chapter })
+    return { items: [record(chapter ? 'chapter' : 'exploration', value.id, value.title, value.content, value)], warnings: [] }
+  }
   if (relative.startsWith('世界书/')) {
     if (worldbookAuxiliary.has(relative) || /^(?:README|00-索引|00-知识图谱)\.md$/i.test(path.posix.basename(relative))) {
       return { items: [record('document', relative, title, content)], warnings: [] }

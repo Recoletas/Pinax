@@ -64,19 +64,27 @@ export function mirrorDomainFingerprint(directory) {
   return digest.digest('hex')
 }
 
-export function commitMirrorTransaction({ dir, payload, render }) {
+export function mirrorBookFingerprint(root) {
+  return hash(JSON.stringify(['正文', '大纲', '构思'].map(name => [name, mirrorDomainFingerprint(path.join(root, name))]).concat([
+    ['meta.json', fs.existsSync(path.join(root, 'meta.json')) ? hash(fs.readFileSync(path.join(root, 'meta.json'))) : null]
+  ])))
+}
+
+export function commitMirrorTransaction({ dir, payload, render, receipt = null }) {
   recoverMirrorTransaction(dir)
   const { journal, backup, staging, generated } = locations(dir)
   const manifestName = path.join('.pinax', 'sync-manifest.json')
   let previous = { revision: 0, files: {} }
   if (fs.existsSync(path.join(dir, manifestName))) previous = JSON.parse(fs.readFileSync(path.join(dir, manifestName), 'utf8'))
   const worldbookFingerprint = mirrorDomainFingerprint(path.join(dir, '世界书'))
+  const bookFingerprint = mirrorBookFingerprint(dir)
   const fingerprint = hash(JSON.stringify(payload))
   if (payload.requestId && previous.requestId === payload.requestId) {
     if (previous.fingerprint !== fingerprint) throw fail('ERR_REQUEST_REUSED', '同步请求编号已用于其他内容。')
     return { ...previous.result, revision: previous.revision }
   }
   if (payload.expectedWorldbookFingerprint !== undefined && payload.expectedWorldbookFingerprint !== worldbookFingerprint) throw fail('ERR_SYNC_CONFLICT', '世界书文件已更新，请重新读取后再保存。')
+  if (payload.expectedBookFingerprint !== undefined && payload.expectedBookFingerprint !== bookFingerprint) throw fail('ERR_SYNC_CONFLICT', '书稿文件已变化，请重新读取后再保存。')
   if (payload.baseRevision !== undefined && payload.baseRevision !== previous.revision) throw fail('ERR_SYNC_CONFLICT', '项目文件已更新，请重新读取后保存。')
   const selected = relative => {
     const top = relative.split(path.sep)[0]
@@ -108,8 +116,9 @@ export function commitMirrorTransaction({ dir, payload, render }) {
       }
       const actual = hash(fs.readFileSync(destination))
       const acceptedWorldbook = relative.startsWith(`世界书${path.sep}`) && payload.expectedWorldbookFingerprint === worldbookFingerprint
-      if (previous.files[relative] && actual !== previous.files[relative] && !acceptedWorldbook) throw fail('ERR_LOCAL_EDIT', `项目文件已被修改：${relative}`)
-      if (!previous.files[relative] && emitted.includes(relative) && actual !== hash(fs.readFileSync(path.join(generated, relative))) && !acceptedWorldbook) throw fail('ERR_LOCAL_EDIT', `已有文件尚未确认接管：${relative}`)
+      const acceptedBook = ['正文', '大纲', '构思', 'meta.json'].includes(relative.split(path.sep)[0]) && payload.expectedBookFingerprint === bookFingerprint
+      if (previous.files[relative] && actual !== previous.files[relative] && !acceptedWorldbook && !acceptedBook) throw fail('ERR_LOCAL_EDIT', `项目文件已被修改：${relative}`)
+      if (!previous.files[relative] && emitted.includes(relative) && actual !== hash(fs.readFileSync(path.join(generated, relative))) && !acceptedWorldbook && !acceptedBook) throw fail('ERR_LOCAL_EDIT', `已有文件尚未确认接管：${relative}`)
     }
     if (hadOriginal) { files(dir); fs.cpSync(dir, staging, { recursive: true }) } else fs.mkdirSync(staging)
     const owned = { ...previous.files }
@@ -120,12 +129,14 @@ export function commitMirrorTransaction({ dir, payload, render }) {
       owned[relative] = hash(content)
     }
     const revision = previous.revision + 1
+    if (receipt) durable(path.join(staging, '.pinax', 'operations', `${hash(receipt.operationId)}.json`), JSON.stringify({ ...receipt, revision }))
     durable(path.join(staging, manifestName), JSON.stringify({ revision, files: owned, requestId: payload.requestId || null, fingerprint, result }, null, 2))
     for (const relative of files(staging)) {
       flushStagedFile(path.join(staging, relative))
       flushDirectory(path.dirname(path.join(staging, relative)))
     }
     flushDirectory(staging)
+    if (mirrorBookFingerprint(dir) !== bookFingerprint || mirrorDomainFingerprint(path.join(dir, '世界书')) !== worldbookFingerprint) throw fail('ERR_SYNC_CONFLICT', '准备保存期间来源已变化，未替换项目。')
     const transaction = { hadOriginal, committed: false }
     durable(journal, JSON.stringify(transaction)); flushDirectory(path.dirname(dir))
     if (hadOriginal) fs.renameSync(dir, backup)

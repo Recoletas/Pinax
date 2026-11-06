@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { loadDocumentMetadata } from '../services/projectDocumentMetadata.js'
 import {
   PROJECT_SPEC,
   createLocalMirrorService
@@ -143,11 +144,18 @@ function chapterFiles(root) {
   const all = fs.readdirSync(dir)
     .filter((name) => /\.(?:md|txt)$/iu.test(name))
     .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
+  const binding = loadDocumentMetadata(root)?.chapterFiles
+  if (binding) {
+    const positions = new Map(Object.keys(binding).map((name, index) => [name, index]))
+    all.sort((a, b) => (positions.get(a) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b) ?? Number.MAX_SAFE_INTEGER))
+  }
   const files = all.slice(0, 500)
   return { files: files.map((name) => path.join(dir, name)), total: all.length, truncated: all.length > files.length }
 }
 
-function chapterTitle(name, index) {
+function chapterTitle(name, index, root) {
+  const title = root ? loadDocumentMetadata(root)?.chapterFiles?.[name]?.record?.title : undefined
+  if (typeof title === 'string') return title
   return name.replace(/\.(?:md|txt)$/iu, '').replace(/^\d+-/, '').trim() || `章节 ${index + 1}`
 }
 
@@ -158,7 +166,7 @@ export function listChapters(root) {
     try { bytes = fs.statSync(file).size } catch { /* 读不到就给 0，不阻断列表 */ }
     return {
       index,
-      title: chapterTitle(path.basename(file), index),
+      title: chapterTitle(path.basename(file), index, root),
       file: `正文/${path.basename(file)}`,
       bytes
     }
@@ -187,11 +195,11 @@ export function readChapter(root, { index, title, offset = 0, maxChars = 20000 }
     target = numericIndex
   } else if (typeof title === 'string' && title.trim()) {
     const wanted = title.trim()
-    target = files.findIndex((file, i) => chapterTitle(path.basename(file), i) === wanted)
-    if (target < 0) target = files.findIndex((file, i) => chapterTitle(path.basename(file), i).includes(wanted))
+    target = files.findIndex((file, i) => chapterTitle(path.basename(file), i, root) === wanted)
+    if (target < 0) target = files.findIndex((file, i) => chapterTitle(path.basename(file), i, root).includes(wanted))
   }
   if (target < 0 || target >= files.length) {
-    const available = files.slice(0, 20).map((file, i) => chapterTitle(path.basename(file), i))
+    const available = files.slice(0, 20).map((file, i) => chapterTitle(path.basename(file), i, root))
     throw failure('ERR_CHAPTER_NOT_FOUND', `未找到章节。可用章节（前 20）：${available.join(' / ')}`)
   }
 
@@ -201,7 +209,7 @@ export function readChapter(root, { index, title, offset = 0, maxChars = 20000 }
   const slice = content.slice(start, start + limit)
   return {
     index: target,
-    title: chapterTitle(path.basename(files[target]), target),
+    title: chapterTitle(path.basename(files[target]), target, root),
     file: `正文/${path.basename(files[target])}`,
     chars: content.length,
     offset: start,

@@ -153,9 +153,11 @@ export async function buildBookMirrorPayload(book) {
   const sourceArchive = await gatherSourceArchive(worldbook)
   return {
     book: {
+      ...book,
       id: book.id,
       title: book.title || book.name || book.id,
       chapters: (Array.isArray(book.chapters) ? book.chapters : []).map((chapter) => ({
+        ...chapter,
         id: chapter.id,
         title: chapter.title || '未命名章节',
         content: typeof chapter.content === 'string' ? chapter.content : ''

@@ -85,6 +85,9 @@ jobs:
       - name: Local project catalog integration
         run: npm run smoke:project-catalog
 
+      - name: File Store integration and recovery
+        run: npm run smoke:file-stores
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15

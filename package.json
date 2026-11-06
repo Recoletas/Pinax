@@ -38,6 +38,7 @@
     "bridge-sync": "node scripts/check-bridge-sync.mjs",
     "catalog-sync": "node scripts/check-capability-catalog-sync.mjs",
     "smoke:project-catalog": "node scripts/project-catalog-smoke.mjs",
+    "smoke:file-stores": "node scripts/file-project-stores-smoke.mjs",
     "brand:icons": "node scripts/brand/build-icons.mjs",
     "verify:browser": "node scripts/ui-audit.mjs && node scripts/online-narrative-smoke.mjs",
     "verify:ci": "npm run verify:full && npm run ci:authoring-smoke && npm run ci:workspace-backup-smoke",

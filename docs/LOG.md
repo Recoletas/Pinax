@@ -4658,3 +4658,17 @@ Core 0.16.0（e56a0bc）已抽取体验/跑团业务：共享运行时状态与�
 验证：`node scripts/project-catalog-smoke.mjs` exit0，隔离合成项目实际经过Worker、HTTP与官方MCP SDK：首次/增量同步、短词/FTS、读取、Electron表/版本保留、过期/修订拒绝、错误大纲回滚、并发同步、取消、HTTP公网403、状态卡前后完整文件哈希/mtime相等。`npm run verify:full` exit0（30文件/290例、应用及文档构建、架构、桥接/能力目录）；`npm run smoke:mcp` 143 passed/2 skipped exit0；`npm run mcp:conformance` 40/0 exit0；改动文件eslint无问题。新增`smoke:project-catalog`脚本入口与CI回归步骤，本地执行通过；GitHub远端尚未推送执行。
 
 MCP冒烟原有两项把“本机安装知识内核”误当成“advisor stub同时提供知识端点”，在当前已装内核的环境报错。修正为严格检查stub的typed unavailable，并明确跳过真实RAG编译/命中，不把安装状态或协议结果冒充真实检索；本批SQLite实际检索有独立端到端证明。未运行作者《大梦》真稿验收、真实模型或设备测试，未接六个Core Store正式文件写入。未启动/重启用户服务（3001/8451/5173未监听），未改Pinix/Next或公网部署；临时项目自动清理。
+
+## 2026-11-06 正式文件 Store 与身份往返
+
+在main `75d95170`上继续Node文件Host适配，Core保持0.16.0。新增六类Core Store及OutlineEdge Store：Book依赖已创建绑定的项目，取消登记保留磁盘原件；正文/设定/大纲以Core参照适配器作为单次工作副本，经原localMirror事务确认后返回；全局笔记/素材使用显式集合JSON和Core journal，不把构思或来源归档换名塞入。
+
+新增local-only POST /api/localmirror/core-operation（snapshot及四类实体命令），冻结项目/书/世界书与文件快照，操作回执跟随同一项目事务安装。同号不同请求拒绝；跨后续写入的旧回执要求重新载入；显式recover核对目录身份。MCP写章节仍为提案，未给模型新增任意文件写入工具。当前浏览器存储模式没有自动迁移。
+
+修复镜像读回丢章节ID/修订/侧车、空章消失和同名构思覆盖；meta.json记录文档身份/序列/原文哈希，Markdown仍是内容源。保留手写文件路径/空格/换行；正文变动清过期editorDocument；损坏或未知元数据不按文件名重建ID。MCP复用标题/顺序，SQLite读取真实稳定ID并把meta.json纳入依赖，只有元数据变化也更新投影。
+
+验证：verify:full通过（30文件/290例、应用/文档构建、架构及现有集成）；定向eslint/lint:delta无新增错误；smoke:file-stores覆盖全部端口实际CRUD/取消登记、重开、全局集合类型隔离、原文往返、文件/修订冲突、操作幂等、换树失败回滚、显式中断恢复、真实HTTP写入与公网拒绝、MCP标题及目录身份更新；local-mirror-check 58项、smoke:project-catalog通过；MCP143 passed/2 skipped、协议40/0。两项skip为本验收advisor stub不提供真实RAG，不冒充模型或检索质量。增加smoke:file-stores的npm/CI入口，未执行GitHub远端CI。
+
+发现旧local-mirror-check仅隔离root，默认app-data派生index.json被写成两个夹具项目。确认ID和目录均属夹具后删除该索引（旧索引未留备份，未冒称恢复旧内容）；它是可重建应用索引，不是稿件或注册表。修复脚本appData/各项目/无规则目录全部落临时root，退出时清理，回归重跑通过；残留夹具已清理。没有新增agent规则，修正既有隔离要求的执行。
+
+本轮未改独立Core/Pinix/Next，未迁浏览器数据，未运行真实模型、Windows、掉电/硬件或移动设备验收。六类Store是Node文件参考Host；默认UI切换、原生实现、独立进程并发写入和大型项目性能由后续分工继续。用户3001/8451/5173未运行，未启动/重启或部署公网。

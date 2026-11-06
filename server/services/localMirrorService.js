@@ -4,7 +4,8 @@
 // 位置解析：PINAX_MIRROR_ROOT env > <homedir>/Documents/Pinax。前端不传路径（防路径注入），服务端唯一决定权。
 // 世界书写侧为契约 v2 布局（条目 → 世界书/<cat>/<name>.md + index.json + graph.json +
 // manifest.json + 骨架件幂等补齐），并提供 readWorldbookFolder 读回——见「世界书文件契约 v2」节。
-import { commitMirrorTransaction, recoverMirrorTransaction, mirrorDomainFingerprint } from './localMirrorTransaction.js'
+import { commitMirrorTransaction, recoverMirrorTransaction, mirrorDomainFingerprint, mirrorBookFingerprint } from './localMirrorTransaction.js'
+import { documentBinding, readBoundDocument, orderBoundDocuments, loadDocumentMetadata, renderDocumentText } from './projectDocumentMetadata.js'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -88,6 +89,7 @@ function validateProjectPathInput(rootPath) {
 /** Windows/通用文件名消毒：去控制符与非法字符，截断，空则回落占位。 */
 export function sanitizeFilename(input, fallback = '未命名') {
   const cleaned = String(input ?? '')
+    // eslint-disable-next-line no-control-regex -- remove C0 controls from filenames
     .replace(/[\u0000-\u001f\u007f<>:"/\\|?*]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
@@ -119,6 +121,8 @@ function validatePayload(payload) {
   for (const chapter of book.chapters) {
     if (!chapter || typeof chapter.title !== 'string' || typeof chapter.content !== 'string') return 'chapter 需要 title/content 字符串'
   }
+  const chapterIds = book.chapters.filter(item => item.id !== undefined && item.id !== null).map(item => String(item.id))
+  if (new Set(chapterIds).size !== chapterIds.length) return '章节ID重复，未写入文件'
   const explorations = Array.isArray(book.explorations) ? book.explorations : []
   if (explorations.length > LIMITS.maxExplorations) return `explorations ≤ ${LIMITS.maxExplorations}`
   const wb = payload.worldbook
@@ -245,6 +249,7 @@ function worldbookCatDir(entry) {
 
 /** 与契约 sanitizeFilename 同规则（契约未导出；index/graph 指针路径与磁盘落点必须一致）。 */
 function worldbookFilename(name) {
+  // eslint-disable-next-line no-control-regex -- preserve the worldbook file contract sanitizer
   let s = String(name ?? '').replace(/[\\/:*?"<>|]/g, '').replace(/[\x00-\x1f\x7f]/g, '')
   s = s.replace(/\s+/g, ' ').trim().replace(/^\.+/, '').replace(/[. ]+$/, '')
   if (/^(con|prn|aux|nul|com\d|lpt\d)$/i.test(s)) s = `_${s}`
@@ -424,6 +429,13 @@ function writeDeduped(dir, base, content, usedNames, ext = '.md') {
   return name
 }
 
+function writeDocument(dir, domain, record, base, content, used) {
+  const parts = String(record.relativePath || '').split('/')
+  const original = parts.length === 2 && parts[0] === domain && parts[1] && !['.', '..'].includes(parts[1]) && !parts[1].includes('\\') && !parts[1].includes('\u0000') && /\.(md|txt)$/iu.test(parts[1]) ? parts[1] : null
+  const extension = original ? path.extname(original) : '.md'
+  return writeDeduped(path.join(dir, domain), original ? original.slice(0, -extension.length) : base, content, used, extension)
+}
+
 function conversationMarkdown(projectId, conversation) {
   const messages = Array.isArray(conversation?.messages) ? conversation.messages.slice(-LIMITS.maxConversationMessages) : []
   const lines = [`# 助手对话 ${projectId}`, '']
@@ -577,13 +589,18 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     for (const templateDir of KIND_TEMPLATES[located.kind] ?? []) fs.mkdirSync(path.join(dir, templateDir), { recursive: true })
 
     const usedChapterNames = new Set()
+    const chapterFiles = {}
+    const explorationFiles = {}
     book.chapters.forEach((chapter, index) => {
       const base = `${String(index + 1).padStart(3, '0')}-${sanitizeFilename(chapter.title)}`
-      writeDeduped(path.join(dir, '正文'), base, `${chapter.content}\n`, usedChapterNames)
+      const rendered = renderDocumentText(chapter)
+      const content = rendered.text
+      const name = writeDocument(dir, '正文', chapter, base, content, usedChapterNames)
+      chapterFiles[name] = documentBinding({ ...chapter, id: chapter.id === undefined || chapter.id === null || !String(chapter.id).trim() ? `正文/${name}` : String(chapter.id) }, content, rendered)
     })
 
     writeFileAtomic(path.join(dir, '大纲', '大纲.md'), outlineMarkdown(book))
-    writeFileAtomic(path.join(dir, '大纲', 'outline.json'), JSON.stringify({ nodes: book.outline?.nodes ?? [], edges: book.outline?.edges ?? [] }, null, 2) + '\n')
+    writeFileAtomic(path.join(dir, '大纲', 'outline.json'), JSON.stringify({ ...book.outline, nodes: book.outline?.nodes ?? [], edges: book.outline?.edges ?? [] }, null, 2) + '\n')
 
     const wb = payload.worldbook
     let entryCount = 0
@@ -613,8 +630,12 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       ensureWorldbookAuxFiles(wbDir)
     }
 
+    const usedIdeaNames = new Set()
     for (const doc of Array.isArray(book.explorations) ? book.explorations : []) {
-      writeDeduped(path.join(dir, '构思'), sanitizeFilename(doc.title), `${doc.content}\n`, new Set())
+      const rendered = renderDocumentText(doc)
+      const content = rendered.text
+      const name = writeDocument(dir, '构思', doc, sanitizeFilename(doc.title), content, usedIdeaNames)
+      explorationFiles[name] = documentBinding({ ...doc, id: doc.id === undefined || doc.id === null || !String(doc.id).trim() ? `构思/${name}` : String(doc.id) }, content, rendered)
     }
 
     const logs = payload.logs ?? {}
@@ -709,7 +730,10 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       archiveDocs: archiveDocCount,
       media: Array.isArray(payload.media) ? payload.media.length : 0
     }
-    writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify({ schema: MIRROR_SCHEMA, bookId: book.id, title: book.title, mirroredAt: now(), ...counts }, null, 2) + '\n')
+    const bookMetadata = { ...book }
+    if (bookMetadata.worldbookId === undefined && wb?.id) bookMetadata.worldbookId = wb.id
+    for (const key of ['chapters', 'explorations', 'outline', 'outlineNodes', 'outlineEdges', 'projectRoot', 'lastSyncAt']) delete bookMetadata[key]
+    writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify({ schema: MIRROR_SCHEMA, documentSchema: 1, bookId: book.id, title: book.title, book: bookMetadata, chapterFiles, explorationFiles, mirroredAt: now(), ...counts }, null, 2) + '\n')
     return { dir: located.dir, counts, projectRoot: located.projectRoot }
   }
 
@@ -721,11 +745,11 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     return fs.existsSync(file) ? { revision: JSON.parse(fs.readFileSync(file, 'utf8')).revision } : { revision: 0 }
   }
 
-  function mirrorBook(payload) {
+  function mirrorBook(payload, { receipt = null } = {}) {
     const error = validatePayload(payload)
     if (error) throw Object.assign(new Error(error), { code: 'ERR_INVALID_INPUT' })
     const located = resolveBookDir(payload.book)
-    const result = commitMirrorTransaction({ dir: located.dir, payload, render: dir => renderMirror(payload, located, dir) })
+    const result = commitMirrorTransaction({ dir: located.dir, payload, receipt, render: dir => renderMirror(payload, located, dir) })
     // 词汇表播种必须在事务提交之后落真实目录：renderMirror 写进 generated 临时壳，
     // 换壳只搬运 emitted 托管清单——词表是用户手改文件，不入托管清单（否则手改被
     // ERR_LOCAL_EDIT 拦截），只能在 rename 换壳后 create-if-absent。
@@ -817,15 +841,18 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       .filter((name) => /\.(?:md|txt)$/iu.test(name))
       .sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }))
       .slice(0, 500)
+    const metadata = loadDocumentMetadata(dir)
     const chapters = []
     for (const name of files) {
       const file = path.join(manuscriptDir, name)
       if (fs.statSync(file).size > 1024 * 1024) continue
-      const content = fs.readFileSync(file, 'utf-8').replace(/\r\n/g, '\n').trim()
-      if (!content) continue
-      chapters.push({ title: name.replace(/\.(?:md|txt)$/iu, '').replace(/^\d+-/, '').trim() || `章节 ${chapters.length + 1}`, content })
+      const raw = fs.readFileSync(file, 'utf-8')
+      const binding = metadata?.chapterFiles?.[name]
+      if (!raw.trim() && !binding) continue
+      const fallback = { id: `正文/${name}`, title: name.replace(/\.(?:md|txt)$/iu, '').replace(/^\d+-/, '').trim() || `章节 ${chapters.length + 1}` }
+      chapters.push({ ...readBoundDocument(raw, binding, fallback, { chapter: true }), relativePath: `正文/${name}` })
     }
-    return { chapters }
+    return { chapters: orderBoundDocuments(chapters, metadata?.chapterFiles) }
   }
 
   /** JSON 文件存在则解析返回，缺失/损坏返回 null（读侧容错，不整批失败）。 */
@@ -850,9 +877,11 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     if (hasMarker && !manifest) warnings.push('.pinax/project.json 解析失败——元数据缺失')
     const entry = readRegistry(resolveAppDataDir()).find((item) => registryKeyOf(item.rootPath) === registryKeyOf(root)) || null
     if (manifest && !entry) warnings.push('项目未在注册表登记（或未绑定 bookId）——读回 id 使用 projectId 占位')
+    const metadata = loadDocumentMetadata(root)
     const manuscript = readProjectChapters(root)
     const outlineRaw = readJsonIfExists(path.join(root, '大纲', 'outline.json'))
     const outline = {
+      ...outlineRaw,
       nodes: Array.isArray(outlineRaw?.nodes) ? outlineRaw.nodes : [],
       edges: Array.isArray(outlineRaw?.edges) ? outlineRaw.edges : []
     }
@@ -867,25 +896,27 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       for (const name of files) {
         const file = path.join(ideasDir, name)
         if (fs.statSync(file).size > 1024 * 1024) continue
-        const content = fs.readFileSync(file, 'utf-8').replace(/\r\n/g, '\n').trim()
-        if (!content) continue
+        const raw = fs.readFileSync(file, 'utf-8')
+        const binding = metadata?.explorationFiles?.[name]
+        if (!raw.trim() && !binding) continue
         const title = name.replace(/\.(?:md|txt)$/iu, '').trim() || `构思 ${explorations.length + 1}`
-        explorations.push({ id: title, title, content })
+        explorations.push({ ...readBoundDocument(raw, binding, { id: `构思/${name}`, title }), relativePath: `构思/${name}` })
       }
     }
     const book = {
-      id: String(entry?.bookId || manifest?.projectId || ''),
-      title: String(manifest?.name || path.basename(root)),
+      ...metadata?.book,
+      id: String(entry?.bookId || metadata?.bookId || manifest?.projectId || ''),
+      title: String(metadata?.book?.title || manifest?.name || path.basename(root)),
       kind: KIND_TEMPLATES[manifest?.kind] ? manifest.kind : 'novel',
       chapters: manuscript.chapters,
       outline,
-      explorations,
+      explorations: orderBoundDocuments(explorations, metadata?.explorationFiles),
       projectRoot: root,
-      createdAt: manifest?.createdAt ?? null,
-      updatedAt: manifest?.updatedAt ?? null,
+      createdAt: metadata?.book?.createdAt ?? manifest?.createdAt ?? null,
+      updatedAt: metadata?.book?.updatedAt ?? manifest?.updatedAt ?? null,
       lastSyncAt: entry?.lastSyncAt ?? null
     }
-    return { ok: true, book, warnings }
+    return { ok: true, book, warnings, bookFingerprint: mirrorBookFingerprint(root) }
   }
 
   /** 资料归档读回（W6·C）：读 <root>/资料/归档/*.json（或 root 即 归档 目录），
