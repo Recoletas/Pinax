@@ -2,7 +2,7 @@
 
 2026-11-06 集中交付补充：此前11-05的“未验证”说明为当轮证据。最新代码已通过完整门禁（30文件/290用例）及书稿导入、章节导入、选区引用、备份恢复4条隔离浏览器旅程；真实模型恢复质量仍未验收。提交与细项见 docs/LOG.md。
 
-2026-11-06 Core当前接线：主Pinax和Pinix消费独立`@pinax/core`0.14.0（`3aa5421`），固定tarball/provenance在各自`vendor/core/`。不依赖开发机的兄弟仓库；Next保留旧分支，本轮不改。原0.13的“前置全部完成”判断已撤回，资料归档、体验和SQLite应用接线仍未收口。
+2026-11-06 Core当前接线：主Pinax和Pinix消费独立`@pinax/core`0.15.0（`c6fe1d9`），固定tarball/provenance在各自`vendor/core/`。不依赖兄弟仓库；Next本轮不改。媒体和资料归档/解析批次已接，体验/跑团业务抽取尚未收口；SQLite应用启用属于后续平台接线。
 
 核对日期：2026-10-16。实现基线为 main 的 `cb6ee525`，发布记录见 [2026-10-15 回执](../agent-runs/release-20261015.md)。本文描述代码职责；运行检查和模型质量证据见[验证状态](../src/test-status.md)。
 
@@ -43,6 +43,8 @@ Pinax 是 Vue 3 工作区、浏览器本地数据和 Express 服务的组合。�
 模型配置统一在 SettingsPopup 的 models 分区。`useSettingsPopup.open('ai'/'media')` 保留旧调用别名并定位文本/图片；工作区快速选择通过 `ModelPickerMenu` 复用对应 store，`modelConfigEvents` 在同页同步增删改与默认选择。重新生成不重置当前权限。助手发送前复制模型和权限，`prepared.modelConfig/modelSettings` 只在内存及请求链中使用，不进入消息或任务日志；正文委托将模型快照传入原推演 executor。Express 的 AsyncLocalStorage 将本次配置传给 complete/stream/capability，运行器 `requestScopedRuntimeConfig` 复制 cfg 后运行，不调用全局 applyModelPatch、不持久化密钥。公网拒绝请求自定义文本配置；旧运行器缺少 requestModels 能力时，自定义模型请求明确拒绝，避免静默用错模型。
 
 0.14媒体接线：23个漫画/分镜/生成/导出/配置模块进入Core，旧服务路径转发纯函数或实例化仓储/服务。漫画页schema5、素材媒体ID及分镜文档schema1不变，不迁作者数据。Core负责草稿字段合并、防旧稿覆盖、阶段/候选来源、生成结果归属和保存重试；Host提供字符串存储、IDB/Blob、页面变更事件、书籍/地点查询和模型/供应商请求。视频HTTP/下载与原生地址解析留Host。Pinix复用主项目规则并补显示/保存入口，stage图保持原身份和谱系，不伪造普通take；备份保留图片模型选择键。Node/npm消费与真实浏览器均验证了版本/恢复、失败保留、迟到结果和导出；没有以脚本供应商冒充真实模型质量。
+
+0.15资料接线：`sourceArchiveRepository`管理来源/分块/创建工作区、共享引用、并发去重、清理、容量与备份规则；章节、编码、报告、选段、EPUB阅读顺序独立共享。Host浏览器store保留原DB名/v1/schema，读取以单快照、跨表写入以单事务确认，结束后关闭连接；内存fallback只在没有IDB能力时使用，真实数据库失败会拒绝。Core单owner写队列不是跨标签页锁，也不是所有数据库已迁SQLite的声明。分块FNV哈希只作桶，比较原文后复用；不重写旧ID/哈希，不自动修复历史丢失的原文。SDK/worker在Host，DOCX按浏览器/Node的参数差异适配；资料解析不会自动成为正式设定或世界事实，归档仍是提取原文与定位，非新增原文件二进制保存。
 
 0.13历史Next分支适配（本轮不继续该分支）：`@pinax/core`来源`fc5fb44`。Next的主进程工具链调用共享`carrierNativeSession → nativeAssistantSession → Pi AgentHarness`，不再进入旧8步循环；60秒整轮超时默认关闭，工具面不再截为6把。取消传至HTTP，提案/审计绑定原fileService，UI分支历史冻结后传入。Pi逐轮日志落原项目`.pinax/pi-sessions/`，UI会话与分支继续原JSONL合同。任务面未披露容量时关闭无依据的主动容量压缩；供应商溢出恢复沿用共享Pi路径。懒加载Pi模块随包内联，构建门禁会实际执行产物，保留原裸导入和包体预算。
 

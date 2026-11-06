@@ -4,11 +4,11 @@
 状态：执行中（主Pinax Core迁移，尚未全部完成）  
 目标读者：主Pinax与Pinix维护者；Next仅保留历史对照
 
-> 当前范围更正（2026-11-06）：主Pinax的Core抽取及Pinix复用；暂停Next适配工作。0.13的已实现模块和历史验证保留，但“全部分工前置完成”结论撤回。0.14已抽取漫画页、分镜/版本和生成/归档等本批规则；剩余资料/体验与SQLite应用接线见下表。平台IO/网络/SDK保留在Host。
+> 当前范围更正（2026-11-06）：主Pinax的Core抽取及Pinix复用；暂停Next适配工作。0.13的已实现模块和历史验证保留，但“全部分工前置完成”结论撤回。0.14已抽取媒体批次，0.15已抽取资料归档/解析；Core剩余体验/跑团见下表，SQLite启用属于单独的平台接线。平台IO/网络/SDK保留在Host。
 
 ## 分工前置进度（2026-11-06，继续迁移）
 
-主Pinax与Pinix当前固定消费独立 `@pinax/core` **0.14.0**，来源`3aa5421dc789938eaf8d79feb28c5791c2ef6d99`；Next保留既有分支，未随本轮升级。Core0.14.0（3aa5421）完成本批23模块抽取：漫画页/草稿/阶段与候选、分镜文档/版本/快照、正文改编/脚本、生成归档/重试/迟到归属、布局/文字/导出、图片桥与渠道配置。主Pinax和Pinix实际调用同一固定包；浏览器存储/事件、HTTP与供应商适配留Host。Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Core85例与185模块无Host导入/静态检查/隔离npm消费通过。脚本供应商验证漫画脚本→保存、旧稿保护新图、归档失败复用原图重试、迟到候选不清新请求，以及分镜版本/恢复/失败保留/ZIP。两端真实浏览器存储/刷新/导出与阶段图片显示通过；Pinix预览1100/390明暗截图已查看并清理。移动构建与Android同步通过，未验APK/真机/真实模型质量。以下是已迁移部分的基线，不代表整体前置结束。
+主Pinax与Pinix当前固定消费独立 `@pinax/core` **0.15.0**，来源`c6fe1d91724a6beb48c2e39a25d15235735ccead`；Next未随本轮升级。Core0.15.0（c6fe1d9）完成资料归档与解析这一批：来源/分块/创建工作区、共享去重/引用/删除/恢复、编码/章节/导入报告、选段及EPUB spine规则进入Core；原Web/Pinix路径实际调用共享仓储和解析工厂。IndexedDB事务、PDF/Mammoth/JSZip加载和worker保留Host。Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Core85例/196模块独立导入/静态检查与隔离npm消费通过。两端真实浏览器解析TXT/DOCX/EPUB/PDF及四格式Worker/取消，验证并发去重、实际FNV碰撞、原子写失败不留半份、不静默转内存、ZIP/刷新/工作区恢复和连接关闭；移动构建/Android同步通过，未验APK/真机/模型质量。这仍是分批迁移，不代表整个Core抽取完成。
 
 | 公共接口 | 已实施内容 | Host边界与剩余接线 |
 |---|---|---|
@@ -25,15 +25,16 @@
 
 0.14实际入口：`createComicPageRepository`、`createStoryboardRepository`、`createComicProductionService`、`createComicAdaptationService`、`createComicScriptService`与`createShotExporter`，加来源/图片桥及渠道配置仓储。原路径仅转发或注入Host端口。Pinix草稿保存接`saveComicPageDraft`，三个漫画显示/编辑组件读取同一显示选择，阶段产物不再被当成普通图片候选；未重做UI布局。模型偏好广播由Web注入，Pinix继续原有字符串写入；图片选择键补齐备份与键分类。
 
-当前仍需继续的实际owner：
+0.15已接的资料端口：`createSourceArchiveRepository({ archiveStore, idFactory })`，store提供`readAll/readMany/snapshot/write`；跨表批次在提交结束后返回`{ok:true}`。`createSourceParser`和`createEpubReader`分别注入库加载与ZIP端口。数据库仍为`pinax-source-archive`版本1/三个id-keyPath表，既有ID与哈希保留；分块原文相等才共享，已复现的`costarring/liquid`旧FNV碰撞不再合并。创建工作区的未完成输入及中断状态保留。原文件二进制保存范围不扩大。
+
+Core下一项为体验/跑团；SQLite平台接线单列，避免继续扩大抽取范围：
 
 | 范围 | 代码入口 | 当前边界 |
 |---|---|---|
-| 资料归档 | `src/services/worldbook/worldbookSourceArchive.js` | 产物/分块/工作区/容量等业务与IndexedDB同文件，仍需分离业务；数据库打开与事务可留Host |
 | 体验与跑团 | `src/services/experience/`，如`gameSessionNormalization`、`gameBranchTurnGraph`与`roleplay/` | 状态归一、分支/回合/触发规则仍有Host实现，需逐owner抽取，不把UI当成保留业务副本的理由 |
 | SQLite应用接线 | `server/services/projectCatalogDb.js`及派生目录模块 | 已有离线隔离验证，尚未接实际应用；不代表所有正式存储迁移完成 |
 
-这些未完成项仍由本次前置工作继续处理；具体平台IO与后续UI/设备任务另分。
+体验/跑团仍在当前Core抽取范围；SQLite启用和后续UI/设备功能按原分工规划继续，不以尚未启用SQLite冒充Core业务仍依赖它。
 
 ## 历史执行顺序（2026-11-05，当前范围以上表为准）
 
