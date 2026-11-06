@@ -2,7 +2,7 @@
 // @vue/runtime-core（plain node 无 DOM，runtime-dom 在加载期需要浏览器全局；
 // Pinia/组合式 API 只依赖 runtime-core 的导出）。仅用于 scripts/ 显式 eval，
 // 不影响构建与测试配置。
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 export async function resolve(specifier, context, next) {
@@ -23,4 +23,14 @@ export async function resolve(specifier, context, next) {
     }
     throw error
   }
+}
+
+// Vite accepts local JSON imports without attributes. Match that behavior only
+// in this explicit Node evaluation harness, not in application resolution.
+export async function load(url, context, next) {
+  if (url.startsWith('file:') && url.endsWith('.json')) {
+    const value = JSON.parse(readFileSync(new URL(url), 'utf8'))
+    return { format: 'module', source: `export default ${JSON.stringify(value)}`, shortCircuit: true }
+  }
+  return next(url, context)
 }

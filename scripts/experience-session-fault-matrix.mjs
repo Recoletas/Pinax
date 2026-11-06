@@ -1,4 +1,4 @@
-/* global process */
+/* eslint-disable no-console -- explicit evaluation report */
 
 // B5 会话故障矩阵：覆盖 gameStoreSession.test.js 未触及的保存调度/隔离语义
 // （显式 eval，不占核心 vitest 预算）。运行：
@@ -186,14 +186,14 @@ check('恢复投影继续：applyRuntimeSnapshot 后继续保存，恢复值持�
 
 check('新调度模块反向接线：生产 action 真实经过新 writer，旧实现无残留', async () => {
   const fs = await import('node:fs')
-  const storeSrc = fs.readFileSync(new URL('../src/stores/gameStore.js', import.meta.url), 'utf8')
+  const storeSrc = fs.readFileSync(new URL(import.meta.resolve('@pinax/core/experience/experienceRuntime')), 'utf8')
   assert.ok(storeSrc.includes('getSessionListWriter(this,'), 'saveSessions 走新 writer')
   assert.ok(storeSrc.includes('flushSessionListWriter(this,'), 'flushSaveSessions 走新 writer')
   assert.ok(storeSrc.includes('buildCurrentSessionFields('), '会话快照构造来自 scheduler')
   assert.ok(storeSrc.includes('buildRuntimeSnapshot('), '快照构建来自 projection')
   assert.ok(!storeSrc.includes('getSaveSessionsDebouncer'), '旧 debouncer 入口已删除')
   const schedulerSrc = fs.readFileSync(new URL('../src/services/experience/gameSessionScheduler.js', import.meta.url), 'utf8')
-  const normalizationSrc = fs.readFileSync(new URL('../src/services/experience/gameSessionNormalization.js', import.meta.url), 'utf8')
+  const normalizationSrc = fs.readFileSync(new URL(import.meta.resolve('@pinax/core/experience/gameSessionNormalization')), 'utf8')
   assert.ok(!/this\./.test(normalizationSrc), '纯规范化模块无 store 访问')
   assert.ok(!/\bthis\.(?!sessions)/.test(schedulerSrc.replace(/getSessions: \(\) => this\.sessions/g, '')), 'scheduler 不读 store 其他字段')
   void schedulerSrc; void normalizationSrc
@@ -654,21 +654,23 @@ check('B-R3 重新生成边界：关闭 AI 严格 no-op，失败候选恢复旧�
   assert.equal(fresh.flags.route, 'old')
 
   const fs = await import('node:fs')
-  const storeSource = fs.readFileSync(new URL('../src/stores/gameStore.js', import.meta.url), 'utf8')
-  const coordinatorSource = fs.readFileSync(new URL('../src/services/experience/experienceTurnCoordinator.js', import.meta.url), 'utf8')
+  const storeSource = fs.readFileSync(new URL(import.meta.resolve('@pinax/core/experience/experienceRuntime')), 'utf8')
+  const coordinatorSource = fs.readFileSync(new URL(import.meta.resolve('@pinax/core/experience/experienceTurnCoordinator')), 'utf8')
   assert.match(storeSource, /generateAIResponse\(options = \{\}\) \{\s+return runExperienceTurn\(this, options\)/)
   assert.match(coordinatorSource, /productionOutcome !== 'success'[\s\S]{0,180}!store\._isRegenerating[\s\S]{0,100}store\.commitCurrentSessionNow\(\)/)
 })
 
 
-check('B14 补丁键集：runtime reset 补丁与基线逐字段清单完全一致（56 项）', async () => {
+check('B14 补丁键集：runtime reset 补丁与基线逐字段清单完全一致（58 项）', async () => {
   const { buildRuntimeResetPatch } = await import('../src/services/experience/gameLifecycleDefaults.js')
   const patch = buildRuntimeResetPatch()
-  // 冻结字段清单：迁移时从基线 resetRuntimeState 的 56 个 this.X = 赋值逐项提取
-  const BASELINE_FIELDS = ['gameId','messages','chatHistory','time','player','inventory','quests','flags','activities','goals','encounteredCharacters','factionRelations','keyChoices','plotJournal','adventureTriggers','adventureTriggerHistory','adventureTriggerCooldownUntil','emergenceCandidates','emergenceDismissedIds','emergenceDraft','adventureTriggerPendingType','npcRelations','discoveredPlaces','completedQuests','writingCharacter','writingTime','placeStates','characterStates','characterRelations','canonicalFacts','worldMapState','historyNode','isPlaying','activeMechanism','mechanismContext','milestoneEvent','playerCharacter','aiCharacter','dialogueMode','dialogueCharacter','inlineEvents','lastWorldbookContext','lastMemoryContext','lastContextLedger','lastMemoryRecall','lastNarrativeKernel','lastNarrativeContextAudit','lastNarrativeAgentTrace','narrativeAgentStatus','narrativeSceneSummary','sceneThread','isLoading','lastError','quickNoteImportMode','quickNoteSelectedMessageIndexes','runtimeEvents']
+  // 原56项加既有跑团会话与未来版本透传字段；本轮抽取不新增重置字段。
+  const BASELINE_FIELDS = ['gameId','messages','chatHistory','time','player','inventory','quests','flags','activities','goals','encounteredCharacters','factionRelations','keyChoices','plotJournal','adventureTriggers','adventureTriggerHistory','adventureTriggerCooldownUntil','emergenceCandidates','emergenceDismissedIds','emergenceDraft','adventureTriggerPendingType','npcRelations','discoveredPlaces','completedQuests','writingCharacter','writingTime','placeStates','characterStates','characterRelations','canonicalFacts','worldMapState','historyNode','isPlaying','activeMechanism','mechanismContext','milestoneEvent','playerCharacter','aiCharacter','dialogueMode','dialogueCharacter','inlineEvents','lastWorldbookContext','lastMemoryContext','lastContextLedger','lastMemoryRecall','lastNarrativeKernel','lastNarrativeContextAudit','lastNarrativeAgentTrace','narrativeAgentStatus','narrativeSceneSummary','sceneThread','isLoading','lastError','quickNoteImportMode','quickNoteSelectedMessageIndexes','runtimeEvents','roleplaySession','roleplayFutureRaw']
   const patchKeys = Object.keys(patch).sort()
   assert.deepEqual(patchKeys, [...BASELINE_FIELDS].sort())
-  assert.equal(patchKeys.length, 56)
+  assert.equal(patchKeys.length, 58)
+  assert.equal(patch.roleplaySession, null)
+  assert.equal(patch.roleplayFutureRaw, null)
   // 显式保留清单不得出现在补丁中
   for (const preserved of ['sessions', 'currentSessionId', 'apiSettings', 'narrativeExpansion', 'useAI', 'turnRecords', 'activeBranchId', 'lastCommittedTurnId']) {
     assert.equal(preserved in patch, false, `${preserved} 必须保留`)

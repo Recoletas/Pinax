@@ -4,11 +4,11 @@
 状态：执行中（主Pinax Core迁移，尚未全部完成）  
 目标读者：主Pinax与Pinix维护者；Next仅保留历史对照
 
-> 当前范围更正（2026-11-06）：主Pinax的Core抽取及Pinix复用；暂停Next适配工作。0.13的已实现模块和历史验证保留，但“全部分工前置完成”结论撤回。0.14已抽取媒体批次，0.15已抽取资料归档/解析；Core剩余体验/跑团见下表，SQLite启用属于单独的平台接线。平台IO/网络/SDK保留在Host。
+> 当前范围更正（2026-11-06）：主Pinax的Core抽取及Pinix复用；暂停Next适配工作。0.13的已实现模块和历史验证保留，但“全部分工前置完成”结论撤回。0.14已抽取媒体、0.15资料归档/解析、0.16体验/跑团；SQLite启用属于单独的平台接线。平台IO/网络/SDK保留在Host。
 
 ## 分工前置进度（2026-11-06，继续迁移）
 
-主Pinax与Pinix当前固定消费独立 `@pinax/core` **0.15.0**，来源`c6fe1d91724a6beb48c2e39a25d15235735ccead`；Next未随本轮升级。Core0.15.0（c6fe1d9）完成资料归档与解析这一批：来源/分块/创建工作区、共享去重/引用/删除/恢复、编码/章节/导入报告、选段及EPUB spine规则进入Core；原Web/Pinix路径实际调用共享仓储和解析工厂。IndexedDB事务、PDF/Mammoth/JSZip加载和worker保留Host。Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Core85例/196模块独立导入/静态检查与隔离npm消费通过。两端真实浏览器解析TXT/DOCX/EPUB/PDF及四格式Worker/取消，验证并发去重、实际FNV碰撞、原子写失败不留半份、不静默转内存、ZIP/刷新/工作区恢复和连接关闭；移动构建/Android同步通过，未验APK/真机/模型质量。这仍是分批迁移，不代表整个Core抽取完成。
+主Pinax与Pinix固定消费独立 `@pinax/core` **0.16.0**，来源`e56a0bc133efdb675be17af95f0967cdf2e11e16`；Next未随本轮升级。Core 0.16.0（e56a0bc）已抽取体验/跑团业务：共享运行时状态与动作、完整回合事务、会话/分支恢复、检定/骰点/回执、场景/资源/同伴、主持步骤、观察器及触发流程。gameStore只绑定共享运行时，原服务路径转发或注入Host端口。状态容器、浏览器存储/去抖、Web Locks、安全随机源、模型通道与页面事件留Host；保留原ID、存储键和版本，不迁作者数据。本轮Web/Pinix verify:full均exit0（30文件290例 / 20文件200例），两端跑团315项与会话故障矩阵20项通过；Core85例、245模块Node独立导入、静态检查和隔离npm消费通过。两端真实浏览器验证离线生成/重试、冻结骰点、刷新恢复、失败分支隔离与取消落盘；Pinix mobile:check/build/sync通过。未做APK/真机或真实模型质量验收。
 
 | 公共接口 | 已实施内容 | Host边界与剩余接线 |
 |---|---|---|
@@ -27,14 +27,15 @@
 
 0.15已接的资料端口：`createSourceArchiveRepository({ archiveStore, idFactory })`，store提供`readAll/readMany/snapshot/write`；跨表批次在提交结束后返回`{ok:true}`。`createSourceParser`和`createEpubReader`分别注入库加载与ZIP端口。数据库仍为`pinax-source-archive`版本1/三个id-keyPath表，既有ID与哈希保留；分块原文相等才共享，已复现的`costarring/liquid`旧FNV碰撞不再合并。创建工作区的未完成输入及中断状态保留。原文件二进制保存范围不扩大。
 
-Core下一项为体验/跑团；SQLite平台接线单列，避免继续扩大抽取范围：
+0.16已接的体验端口：`createExperienceRuntime`返回`createState/actions`，由原Pinia owner绑定。`createExperienceTurnCoordinator`保留完整回合提交/失败恢复，不拆成独立半事务；生成、记录、状态读取与通知由Host注入。跑团工作流依赖工厂实例自己的历史端口和安全随机源；Web Locks仅由Host取得并传入。所有存档仍沿用原schema/ID/存储键。分支恢复只选择committed回合，避免失败快照被误采用。
 
-| 范围 | 代码入口 | 当前边界 |
+| 当前核对范围 | 代码入口 | 结果与边界 |
 |---|---|---|
-| 体验与跑团 | `src/services/experience/`，如`gameSessionNormalization`、`gameBranchTurnGraph`与`roleplay/` | 状态归一、分支/回合/触发规则仍有Host实现，需逐owner抽取，不把UI当成保留业务副本的理由 |
-| SQLite应用接线 | `server/services/projectCatalogDb.js`及派生目录模块 | 已有离线隔离验证，尚未接实际应用；不代表所有正式存储迁移完成 |
+| 体验与跑团 | Core `experience/`；Host `gameStore`和原服务路径 | 已抽取并在两端实际消费，不再列为待抽取；Host保留状态容器和平台能力。两端315项跑团、20项会话矩阵与真实浏览器恢复旅程通过，非真实模型质量证据 |
+| SQLite应用接线 | `server/services/projectCatalogDb.js`及派生目录模块 | 离线隔离检查已有，尚未接实际应用；不属于本批Core规则搬迁，后续由平台方向接入 |
+| 后续交付验收 | 各Host与组员任务 | 跨设备/真机/真实模型和平台存储接线单列，不因共享包可导入而自动完成；Next按作者要求暂停 |
 
-体验/跑团仍在当前Core抽取范围；SQLite启用和后续UI/设备功能按原分工规划继续，不以尚未启用SQLite冒充Core业务仍依赖它。
+前面已列业务批次现已通过实际Host接线；这不等于所有平台迁移、后续功能或产品验收完成。后续按原A/B/C方向分工，避免继续用“抽Core”承包新的功能建设。
 
 ## 历史执行顺序（2026-11-05，当前范围以上表为准）
 

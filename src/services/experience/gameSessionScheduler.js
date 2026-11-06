@@ -5,14 +5,6 @@
 
 import { debounce, flushPending } from '../../composables/useDebounce'
 import { setItem, STORAGE_KEYS } from '../../composables/useStorage'
-import { normalizeTurnRecords } from '../../../shared/narrativeTurnContract.js'
-import { resolveRoleplayPersistence } from './roleplay/roleplayState.js'
-import {
-  cloneState,
-  DEFAULT_WORLD_MAP_STATE,
-  DEFAULT_WRITING_CHARACTER,
-  DEFAULT_WRITING_TIME
-} from './gameSessionNormalization.js'
 
 // 会话列表去抖写盘（每 store 实例一个写手；Pinax Tier 1 #11）。
 // getSessions 是显式列出的窄能力：只读的会话数组 getter。
@@ -58,86 +50,4 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// 新会话记录构造。runtimeState 由调用方决定（继承当前快照或空运行时），
-// 这里只负责把消息/聊天/世界状态按存档合同落成一条记录。
-export function buildCreatedSessionRecord({ id, title = '新会话', now = Date.now(), worldbookId, runtimeState }) {
-  return {
-    id,
-    schemaVersion: 1,
-    title,
-    createdAt: now,
-    updatedAt: now,
-    worldId: worldbookId,
-    worldbookId,
-    runtimeState,
-    messages: cloneState(runtimeState.messages, []),
-    chatHistory: cloneState(runtimeState.chatHistory, []),
-    worldState: {
-      character: cloneState(runtimeState.writingCharacter, DEFAULT_WRITING_CHARACTER),
-      time: cloneState(runtimeState.writingTime, DEFAULT_WRITING_TIME),
-      worldMap: cloneState(runtimeState.worldMapState, DEFAULT_WORLD_MAP_STATE),
-      activities: cloneState(runtimeState.activities, [])
-    }
-  }
-}
-
-// 保存当前会话时写入既有记录的字段集；调用方把它逐字段合并进 sessions[idx]，
-// 记录对象本身仍属于 store 的 sessions 数组。
-export function buildCurrentSessionFields({
-  messages,
-  chatHistory,
-  runtimeState,
-  writingCharacter,
-  writingTime,
-  worldMapState,
-  activities,
-  turnRecords,
-  lastCommittedTurnId,
-  activeBranchId,
-  worldbookId,
-  roleplaySession = null,
-  roleplayFutureRaw = null,
-  previousSchemaVersion = 0,
-  now = Date.now()
-}) {
-  return {
-    schemaVersion: previousSchemaVersion || 1,
-    messages: cloneState(messages, []),
-    chatHistory: cloneState(chatHistory, []),
-    runtimeState,
-    worldState: {
-      character: cloneState(writingCharacter, DEFAULT_WRITING_CHARACTER),
-      time: cloneState(writingTime, DEFAULT_WRITING_TIME),
-      worldMap: cloneState(worldMapState, DEFAULT_WORLD_MAP_STATE),
-      activities: cloneState(activities, [])
-    },
-    // R1a：回合事务记录随 session 持久化（LRU ≤50，含全量 preRuntimeSnapshot）
-    turnRecords: normalizeTurnRecords(turnRecords),
-    lastCommittedTurnId: lastCommittedTurnId || null,
-    activeBranchId: activeBranchId || 'main', // P0-4：活动分支持久化
-    // C 线跑团：pending 检定/回执/outbox 与会话同一次 durable 写入。
-    // CX05：写回决策归 roleplayState（v1 归一化 / 未来版本原样透传）。
-    roleplay: cloneState(resolveRoleplayPersistence(roleplaySession, roleplayFutureRaw).value, null),
-    worldId: worldbookId,
-    worldbookId,
-    updatedAt: now
-  }
-}
-
-// 标题派生：第一条 assistant 消息前 30 字；无 assistant 消息时返回 null
-//（调用方保持原标题）。
-export function deriveSessionTitle(messages = []) {
-  const firstMsg = (Array.isArray(messages) ? messages : []).find(
-    (message) => message.role === 'assistant' && message.content
-  )
-  if (!firstMsg) return null
-  return firstMsg.content.slice(0, 30) + (firstMsg.content.length > 30 ? '...' : '')
-}
-
-// 同一 worldbook 的最近会话（updatedAt 降序）。
-export function findLatestSessionForWorldbook(sessions, worldbookId) {
-  if (!worldbookId || !Array.isArray(sessions)) return null
-  const target = worldbookId
-  const sorted = [...sessions].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-  return sorted.find((session) => (session.worldbookId || session.worldId) === target) || null
-}
+export * from '@pinax/core/experience/sessionRecords'

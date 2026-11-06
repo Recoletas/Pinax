@@ -4638,3 +4638,13 @@ core:pack改为显式接受独立干净仓库来源、记录provenance并拒绝�
 - 额外eslint对runtime扩展、共享模型配置、Catalog和打包CLI检查0error（project-catalog CLI有3条console warning）。
 
 不发起真实模型调用、不主动刷新作者页面、不重启现用3001/8451/5173、不部署。通过上述验证不等于实际模型上下文恢复、全部历史冲突或移动真机已验收。推送由本轮后续执行，远端结果以最终回复核对为准。
+
+## 2026-11-06 Core 0.16：体验/跑团与完整运行时接线
+
+Core 0.16.0（e56a0bc）已抽取体验/跑团业务：共享运行时状态与动作、完整回合事务、会话/分支恢复、检定/骰点/回执、场景/资源/同伴、主持步骤、观察器及触发流程。gameStore只绑定共享运行时，原服务路径转发或注入Host端口。状态容器、浏览器存储/去抖、Web Locks、安全随机源、模型通道与页面事件留Host；保留原ID、存储键和版本，不迁作者数据。
+
+独立Core提交`e56a0bc133efdb675be17af95f0967cdf2e11e16`，49个新增共享模块；固定包sha256 `db662543eda2094042f65231088a156da91acd9f1e6810345e5d583ee216b077`，来源与integrity见两端vendor/core的0.16 provenance。修复latestBranchTurn选择失败快照；将Pinix继承的旧生成上限和场景上下文对齐主Pinax，但不引入其缺失的Web专用Pi桥或提示快照库。Core保留StoryForge归因和MIT全文许可。
+
+本轮Web/Pinix verify:full均exit0（30文件290例 / 20文件200例），两端跑团315项与会话故障矩阵20项通过；Core85例、245模块Node独立导入、静态检查和隔离npm消费通过。两端真实浏览器验证离线生成/重试、冻结骰点、刷新恢复、失败分支隔离与取消落盘；Pinix mobile:check/build/sync通过。未做APK/真机或真实模型质量验收。实际命令：`npm run verify:full`、`node scripts/experience-roleplay-eval.mjs`、`node scripts/experience-session-fault-matrix.mjs`、`node scripts/experience-core-smoke.mjs`（Pinix端口5308）、Core `npm test`/`npm run smoke`、Pinix `mobile:check`/`mobile:sync`（包含build:mobile），最终均exit0。早期旧浏览器脚本选择器已不适用；未据此改UI，改用真实Host状态/保存/失败恢复旅程。旧Node矩阵补JSON加载并指向已安装Core源码，补齐既有跑团重置字段58项，未抹掉断言。
+
+本批体验/跑团已不再保留Host业务副本；SQLite派生目录应用接线仍未启用，属于后续平台工作。Next未改，未推送/部署或重启用户服务。
