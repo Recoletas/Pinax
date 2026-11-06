@@ -16,7 +16,7 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'pinax-mcp-conformance-'))
 const projectRoot = path.join(temp, '项目')
 const appData = path.join(temp, 'appdata')
 const results = []
-const EXPECTED_TOOL_COUNT = 19
+const EXPECTED_TOOL_COUNT = 20
 function check(name, ok, detail = '') {
   results.push({ name, ok: Boolean(ok), detail: String(detail).slice(0, 600) })
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? ` — ${String(detail).slice(0, 240)}` : ''}`)
@@ -109,7 +109,7 @@ async function checkStdio() {
     const tools = listed.tools || []
     check(`tools/list ${EXPECTED_TOOL_COUNT} 个且无 nextCursor`, tools.length === EXPECTED_TOOL_COUNT && !listed.nextCursor, String(tools.length))
     const names = tools.map((tool) => tool.name)
-    check('批次8 工具已上架', ['pinax_project_import', 'pinax_project_index', 'pinax_knowledge_search'].every((name) => names.includes(name)), names.join(','))
+    check('批次8 工具已上架', ['pinax_project_import', 'pinax_project_index', 'pinax_knowledge_search', 'pinax_project_catalog'].every((name) => names.includes(name)), names.join(','))
     check('工具名唯一', new Set(names).size === names.length)
     check('工具名符合 MCP 命名', names.every((name) => /^[a-zA-Z0-9_-]{1,64}$/u.test(name)), names.join(','))
     const parseFails = []
@@ -125,7 +125,7 @@ async function checkStdio() {
       const annotations = tool.annotations || {}
       return ['readOnlyHint', 'destructiveHint', 'idempotentHint', 'openWorldHint'].every((key) => annotations[key] === undefined || typeof annotations[key] === 'boolean')
     }))
-    const writeTools = ['pinax_chapter_write', 'pinax_project_init', 'pinax_rule_write', 'pinax_worldbook_write', 'pinax_chapter_import', 'pinax_project_import', 'pinax_project_index']
+    const writeTools = ['pinax_chapter_write', 'pinax_project_init', 'pinax_rule_write', 'pinax_worldbook_write', 'pinax_chapter_import', 'pinax_project_import', 'pinax_project_index', 'pinax_project_catalog']
     check('写类工具 readOnlyHint=false', tools.filter((tool) => writeTools.includes(tool.name)).every((tool) => tool.annotations?.readOnlyHint === false), tools.filter((tool) => writeTools.includes(tool.name)).map((tool) => `${tool.name}:${tool.annotations?.readOnlyHint}`).join(','))
     check('只读工具 readOnlyHint=true', tools.filter((tool) => !writeTools.includes(tool.name)).every((tool) => tool.annotations?.readOnlyHint === true), tools.filter((tool) => !writeTools.includes(tool.name) && tool.annotations?.readOnlyHint !== true).map((tool) => tool.name).join(','))
 

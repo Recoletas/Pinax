@@ -4,6 +4,7 @@ import {
   openProject,
   resolveProject
 } from '../localProjects.js'
+import { runProjectCatalog } from '../../services/projectCatalogService.js'
 
 const projectRef = {
   projectPath: {
@@ -28,7 +29,7 @@ export const projectTools = [
   {
     name: 'pinax_project_open',
     title: '打开本地项目',
-    description: '校验并打开一个本地项目文件夹，返回项目元数据与章节/大纲/世界书数量。不会写入注册表，也不修改任何文件。',
+    description: '校验并打开一个本地项目文件夹，返回项目元数据与章节/大纲/世界书数量。不会写入注册表，也不修改创作文件。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -41,7 +42,7 @@ export const projectTools = [
   {
     name: 'pinax_project_context',
     title: '读取项目上下文索引',
-    description: '返回项目的轻量上下文索引：章节标题、大纲节点、世界书条目摘要与约束文件清单。正文请用 pinax_chapter_read 读取。',
+    description: '返回项目的轻量上下文索引：章节标题、大纲节点、世界书条目摘要与约束文件清单。附带SQLite目录就绪状态，不自动建库或同步；正文请用 pinax_chapter_read 读取。',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -51,7 +52,10 @@ export const projectTools = [
     annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
     run: async (args) => {
       const resolved = resolveProject(args)
-      return buildProjectContext(resolved.root, resolved)
+      const context = buildProjectContext(resolved.root, resolved)
+      try { context.catalog = await runProjectCatalog(resolved.root, { action: 'status' }, { expectedProjectId: resolved.manifest.projectId }) }
+      catch (error) { context.catalog = { available: false, code: error.code || 'CATALOG_ERROR', message: error.message } }
+      return context
     }
   }
 ]

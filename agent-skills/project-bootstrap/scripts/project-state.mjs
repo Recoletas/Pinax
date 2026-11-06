@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { parseWorldbookEntryFile } from '../../../shared/worldbookFileContract.js'
 import { KIND_TEMPLATES, PROJECT_SPEC } from '../../../server/services/localMirrorService.js'
+import { scanSources } from '../../../server/services/projectCatalog/sources.js'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..')
 const EXPECTED_DIRS = KIND_TEMPLATES
@@ -330,6 +331,8 @@ function runSqliteProbe(file) {
     ' for t in tables:',
     '  try: out[t]=con.execute(\'select count(*) from "%s"\' % t).fetchone()[0]',
     '  except Exception: out[t]=None',
+    ' if "catalog_meta" in tables:',
+    '  out["catalog"]={"meta":dict(con.execute("select key,value from catalog_meta")),"files":[dict(zip(["path","fingerprint"],r)) for r in con.execute("select relative_path,fingerprint from catalog_files")],"kinds":dict(con.execute("select kind,count(*) from catalog_items group by kind"))}',
     ' print(json.dumps(out))',
     'except Exception as e:',
     ' print(json.dumps({"error":str(e)}))'
@@ -353,9 +356,21 @@ function auditSqlite(root) {
     const wal = byteSize(`${file}-wal`)
     const entry = { path: posix(path.relative(root, file)), bytes: byteSize(file), walBytes: wal, shmBytes: byteSize(`${file}-shm`) }
     entry.read = wal > 0 ? { available: false, reason: `-wal 有 ${wal} 字节待落盘；为保持只读未打开，请在桌面端 checkpoint 后再查` } : runSqliteProbe(file)
+    const catalog = entry.read.catalog
+    if (catalog) {
+      try {
+        const indexed = new Map(catalog.files.map(item => [item.path, item.fingerprint]))
+        const sources = scanSources(path.dirname(path.dirname(file)))
+        catalog.stale = !catalog.meta.revision || sources.length !== indexed.size || sources.some(item => indexed.get(item.relative) !== item.fingerprint)
+      } catch (error) { catalog.stale = null; catalog.sourceError = error.code || error.message }
+      const project = readJson(path.join(path.dirname(path.dirname(file)), '.pinax/project.json'))
+      catalog.projectMismatch = catalog.meta.project_id !== project?.projectId
+      catalog.fileCount = catalog.files.length
+      delete catalog.files
+    }
     found.push(entry)
   }
-  return { present: found.length > 0, databases: found, note: '服务端与 MCP 不读写 project.sqlite；它只属于 Electron 桌面工程内核。' }
+  return { present: found.length > 0, databases: found, note: 'project_items归Electron；catalog_*是文件派生目录，本地HTTP/MCP可显式同步。状态卡只读，不同步。' }
 }
 
 function recommendations(state) {
@@ -384,10 +399,13 @@ function recommendations(state) {
   if (state.rag.current.indexWouldReject) push('critical', `RAG 索引会被整次拒绝：${state.rag.current.indexWouldReject.code}（${state.rag.current.blockers.map((item) => `${item.file}${item.detail ? ` · ${item.detail}` : ''}`).slice(0, 3).join('；')}${state.rag.current.blockers.length > 3 ? ` 等 ${state.rag.current.blockers.length} 处` : ''}）；符号链接与超容量不是「跳过」，必须先清来源。`)
   else if (state.rag.current.skipped.length) push('warning', `RAG 输入有 ${state.rag.current.skipped.length} 项本地读不到（不可读）：索引请求会在读取处报错，先修权限/编码。`)
   if (state.legacyKb.indexed && (state.legacyKb.notIndexed.length || state.legacyKb.missing.length)) push('note', '旧 .kb 与当前目录不一致：可选用；如继续用，先定标准目录再 build_index.py，避免把副本重复索引。')
-  if (!state.sqlite.present) push('note', '没有 project.sqlite：这是 Electron 桌面内核的派生目录，不是项目完整性门槛；服务端/MCP 不依赖它。')
+  if (!state.sqlite.present) push('note', '没有project.sqlite不代表缺稿；要使用跨内容字面搜索，可显式调用pinax_project_catalog sync建立派生目录。')
   for (const database of state.sqlite.databases) {
     if (!database.read.available) push('note', `${database.path}：${database.read.reason || '未读取内容'}`)
     else if (database.read.error) push('critical', `${database.path} 读取失败：${database.read.error}；先备份再处理，不要删库。`)
+    else if (database.read.catalog?.projectMismatch) push('critical', `${database.path}：catalog属于另一项目，不能继续使用。`)
+    else if (database.read.catalog?.stale === true) push('note', `${database.path}：catalog目录过期，请显式sync；不自动改文件或重建。`)
+    else if (database.read.catalog?.sourceError) push('warning', `${database.path}：目录来源不可核对（${database.read.catalog.sourceError}）。`)
     else if (database.read.project_items === 0) push('note', `${database.path} 完整但 project_items=0：内核只是空骨架，需由桌面端导入/迁移才有目录，不由 MCP 伪造。`)
   }
   if (!list.length) push('ok', '状态卡无阻塞项：可按导入→查询→复核的节奏继续。')
@@ -437,7 +455,7 @@ function printText(state) {
   console.log(`RAG: runtime=${state.rag.runtimeReady ? 'ready' : 'missing'}  index=${state.rag.index ? `${state.rag.index.cards} cards @ ${state.rag.index.indexedAt || '?'}` : 'none'}  stale=${state.rag.stale === null ? 'n/a' : state.rag.stale ? 'yes' : 'no'}  inputs=${state.rag.current.files}/${state.rag.current.bytes}B  reject=${state.rag.current.indexWouldReject ? state.rag.current.indexWouldReject.code : 'no'}`)
   const kb = state.legacyKb
   if (kb.present) console.log(`legacy .kb: ${kb.indexed ? `built ${kb.built || '?'}，${kb.chunks} chunks/${kb.files} files，未索引 ${kb.notIndexed.length}，失踪 ${kb.missing.length}` : '目录存在但无 index.json'}`)
-  console.log(`SQLite: ${state.sqlite.present ? state.sqlite.databases.map((db) => `${db.path} ${db.bytes}B items=${db.read.project_items ?? '未读'} integrity=${db.read.integrity || db.read.reason || db.read.error || '未读'}`).join(' | ') : 'none（桌面内核可选）'}`)
+  console.log(`SQLite: ${state.sqlite.present ? state.sqlite.databases.map((db) => `${db.path} ${db.bytes}B items=${db.read.project_items ?? '未读'} integrity=${db.read.integrity || db.read.reason || db.read.error || '未读'}${db.read.catalog ? ` catalog=${db.read.catalog.stale === null ? 'unknown' : db.read.catalog.stale ? 'stale' : 'fresh'} files=${db.read.catalog.fileCount}` : ''}`).join(' | ') : 'none（桌面内核可选）'}`)
   console.log('next:')
   for (const item of recommendations(state)) console.log(`  [${item.level}] ${item.text}`)
 }

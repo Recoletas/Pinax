@@ -1,4 +1,4 @@
-# MCP 工具矩阵（19 个，v0.5.0）
+# MCP 工具矩阵（20 个，v0.6.0）
 
 来源：`server/mcp/tools/*.js`、`server/mcp/createMcpServer.js`。改代码前以这三处为准，不要按本文记忆行事。
 
@@ -16,7 +16,7 @@
 | 工具 | 必填 | 关键可选 | 注意 |
 |---|---|---|---|
 | `pinax_project_list` | — | — | 只列注册表中的本地文件夹，不返回浏览器缓存书 |
-| `pinax_project_open` | — | `projectPath`/`projectId` 至少一个 | 不写注册表、不改文件 |
+| `pinax_project_open` | — | `projectPath`/`projectId` 至少一个 | 不写注册表、不改原文件 |
 | `pinax_project_context` | 同上 | — | 轻量索引：章节标题、大纲节点、世界书摘要、约束清单；正文另读 |
 | `pinax_chapter_list` | 同上 | `limit` | 按文件名排序，返回序号/标题/字节数，不含正文 |
 | `pinax_chapter_read` | 同上 | `index`/`title`、`offset`、`maxChars`（默认 2 万，夹在 1000–20 万） | 单文件 >2MB → `ERR_FILE_TOO_LARGE`；无章节 → `ERR_NO_CHAPTERS` |
@@ -78,6 +78,12 @@
 
 `timeoutMs` 默认 60000、上限 180000；`k`/`maxChars` 与上游同上限（30 / 20000）。
 正文与大纲不在 RAG 输入集：`pinax_project_index` 再新鲜也查不到正文，引正文要用 `pinax_chapter_read` 或 `pinax_agent_ask`。
+
+## 文件派生目录（SQLite，1）
+
+`pinax_project_catalog`接收`projectPath/projectId`和`action`：status（默认）、sync、search、list、read。status不建库，sync只更新catalog_*表；read要求kind/id，search要求query。返回来源路径、哈希、文件修订与目录revision；读取前后核对来源，过期报CATALOG_STALE，expectedRevision不符报CATALOG_REVISION_MISMATCH。该工具可同步派生数据，因此readOnlyHint=false；项目原文件、Electron表和RAG不变。
+
+HTTP同合同：`POST /api/localmirror/catalog`；同步/扫描在Worker，不占Express主线程。未建立返回CATALOG_NOT_INITIALIZED。现有project_context附带catalog就绪状态，不隐式同步。
 
 ## 路径与身份拒绝（读写通用）
 

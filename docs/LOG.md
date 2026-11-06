@@ -4648,3 +4648,13 @@ Core 0.16.0（e56a0bc）已抽取体验/跑团业务：共享运行时状态与�
 本轮Web/Pinix verify:full均exit0（30文件290例 / 20文件200例），两端跑团315项与会话故障矩阵20项通过；Core85例、245模块Node独立导入、静态检查和隔离npm消费通过。两端真实浏览器验证离线生成/重试、冻结骰点、刷新恢复、失败分支隔离与取消落盘；Pinix mobile:check/build/sync通过。未做APK/真机或真实模型质量验收。实际命令：`npm run verify:full`、`node scripts/experience-roleplay-eval.mjs`、`node scripts/experience-session-fault-matrix.mjs`、`node scripts/experience-core-smoke.mjs`（Pinix端口5308）、Core `npm test`/`npm run smoke`、Pinix `mobile:check`/`mobile:sync`（包含build:mobile），最终均exit0。早期旧浏览器脚本选择器已不适用；未据此改UI，改用真实Host状态/保存/失败恢复旅程。旧Node矩阵补JSON加载并指向已安装Core源码，补齐既有跑团重置字段58项，未抹掉断言。
 
 本批体验/跑团已不再保留Host业务副本；SQLite派生目录应用接线仍未启用，属于后续平台工作。Next未改，未推送/部署或重启用户服务。
+
+## 2026-11-06 SQLite派生目录：Worker与本地应用接线
+
+在Web基线`67a70bd7`继续平台工作，Core包保持0.16.0。新增每请求独立Worker目录服务，接入`POST /api/localmirror/catalog`与MCP `pinax_project_catalog`；MCP版本0.6.0/20工具。按文件项目路径或注册表projectId/bookId定位，注册表目标ID在打开目录前复核。只显式sync写catalog_*派生表，原稿、项目marker、Electron表与RAG不改。status不建库，read/list/search前后核对文件和目录版本，过期/expectedRevision不符返回typed error，不伪装零命中。
+
+`pinax_project_context`附目录就绪状态，不自动同步；project-bootstrap状态卡读取catalog元数据、数量、新鲜度和项目身份，WAL非空保留未核对。更新技能与两份参考中“SQLite仅供Electron”的旧说明，16个shim及frontmatter核对通过。
+
+验证：`node scripts/project-catalog-smoke.mjs` exit0，隔离合成项目实际经过Worker、HTTP与官方MCP SDK：首次/增量同步、短词/FTS、读取、Electron表/版本保留、过期/修订拒绝、错误大纲回滚、并发同步、取消、HTTP公网403、状态卡前后完整文件哈希/mtime相等。`npm run verify:full` exit0（30文件/290例、应用及文档构建、架构、桥接/能力目录）；`npm run smoke:mcp` 143 passed/2 skipped exit0；`npm run mcp:conformance` 40/0 exit0；改动文件eslint无问题。新增`smoke:project-catalog`脚本入口与CI回归步骤，本地执行通过；GitHub远端尚未推送执行。
+
+MCP冒烟原有两项把“本机安装知识内核”误当成“advisor stub同时提供知识端点”，在当前已装内核的环境报错。修正为严格检查stub的typed unavailable，并明确跳过真实RAG编译/命中，不把安装状态或协议结果冒充真实检索；本批SQLite实际检索有独立端到端证明。未运行作者《大梦》真稿验收、真实模型或设备测试，未接六个Core Store正式文件写入。未启动/重启用户服务（3001/8451/5173未监听），未改Pinix/Next或公网部署；临时项目自动清理。

@@ -79,24 +79,17 @@ INPUT_DIRS = ['世界书', '资料', '规则', '约束', '文风']
 
 ## 二、`project.sqlite`
 
-| 事实 | 证据 |
-|---|---|
-| 只属于 Electron 桌面工程内核，服务端与 MCP 不读写 | `electron/projects/projectDatabase.mjs:75-82` |
-| 目录表 `project_items`，`kind CHECK IN ('volume','chapter','reference')` | `electron/projects/migrations/001-foundation.sql:6-8` |
-| 另有 `file_transactions`（staged/committed/aborted 恢复）、`legacy_import*` 表 | `001-foundation.sql`、`002-legacy-import.sql` |
-| 行只由桌面端迁移器插入 | `electron/migration/legacyProjectImporter.mjs` |
-| **没有 rule / worldbook 的 kind** | `001-foundation.sql:8` 的 CHECK 枚举 |
+| 数据 | 所有者与入口 | 边界 |
+|---|---|---|
+| project_items/file_transactions/schema_migrations | Electron `electron/projects/projectDatabase.mjs`与迁移器 | kind为volume/chapter/reference，不新增世界书行，不由服务端修改 |
+| catalog_meta/files/items/FTS/大纲边 | `server/services/projectCatalogDb.js`，Worker服务`projectCatalogService.js` | 从正文/世界书/大纲/构思/资料/约束/规则/文风文件投影；仅派生表 |
+| 在线操作 | `POST /api/localmirror/catalog`与MCP `pinax_project_catalog` | status不建库，sync显式更新，search/list/read不隐式同步；过期/版本不符拒绝旧结果 |
+| 严格只读诊断 | `project-state.mjs` | WAL非空跳过，其他情况Python immutable只读；显示catalog身份/数量/新鲜度，不同步 |
 
-推论：
-
-1. 空库（`integrity_check=ok`、`project_items=0`）是正常骨架，MCP 路线不依赖它，**不要用 MCP 伪造行**。
-2. 「SQLite 已覆盖全项目」不成立：规则与世界书在该 schema 里没有位置，它们的事实源仍是文件与 RAG 投影。
-3. 只读探库：`-wal` 非空时先让桌面端 checkpoint，否则会写出 `-shm` 时间戳（本项目曾因此踩过「只读却改动目录」的坑）。
-   本仓依赖的 `better-sqlite3` 原生 ABI 与本机 Node 不匹配，脚本用 Python 标准库 `sqlite3` 以
-   `file:...?mode=ro&immutable=1` 打开。
+文件仍是事实源。空Electron表和未建立catalog都不代表项目缺稿；需要字面搜索时显式sync，而不是伪造行。普通SQLite只读连接可能操作共享内存，严格的文件指纹证明使用状态卡。它不替代RAG，也不是六个Core Store的正式文件写入适配器。
 
 ## 三、标准范式（一句话）
 
 **文件是唯一事实源；RAG 与 SQLite 都是派生投影。**
-初始化/导入用 MCP 写工具（幂等、只新增），索引同步用 revision 比对，桌面目录由 Electron 迁移器负责；
+初始化/导入用 MCP 写工具（幂等、只新增），索引同步用 revision 比对，桌面project_items由Electron迁移器负责，文件派生catalog由显式sync负责；
 三者口径不同、更新成本不同，任何汇报都要分别说明「谁更新了、谁没有、为什么」。

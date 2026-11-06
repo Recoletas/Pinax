@@ -34,6 +34,7 @@ const EXPECTED_TOOLS = [
   'pinax_worldbook_write',
   'pinax_chapter_import',
   'pinax_project_import',
+  'pinax_project_catalog',
   'pinax_project_index',
   'pinax_knowledge_search'
 ]
@@ -466,21 +467,14 @@ async function runStdio() {
     const cacheRoot = String(indexStatus.cacheRoot || path.join(root, '.runtime', 'data', 'knowledge'))
     check('project_index status 只读不写缓存', indexStatus.written === false && !fs.existsSync(path.join(cacheRoot, batchProjectId)), JSON.stringify({ w: indexStatus.written, cacheRoot }))
     const indexSync = payload(await client.request('tools/call', { name: 'pinax_project_index', arguments: { projectPath: batchRoot, action: 'sync' } }))
-    // 本冒烟把 advisor 指向 stub：没有真 Pinax 服务，sync 要么真成功（装齐环境时），要么给类型化错误——绝不能被当成成功。
-    const knowledgeTypedFailure = indexSync.ok === false && ['KNOWLEDGE_RUNTIME_MISSING', 'ERR_KNOWLEDGE_UNAVAILABLE', 'ERR_KNOWLEDGE_TIMEOUT', 'ERR_KNOWLEDGE_RESPONSE_INVALID', 'ERR_PROJECT_NOT_REGISTERED', 'KNOWLEDGE_READ_FAILED'].includes(indexSync.code)
-    if (kernelReady) {
-      check('project_index sync 装齐环境时判 fresh', indexSync.ok === true && indexSync.verdict === 'fresh', JSON.stringify({ ok: indexSync.ok, code: indexSync.code, v: indexSync.verdict }).slice(0, 240))
-    } else {
-      check('project_index sync 未装内核时类型化拒绝（不冒充成功）', knowledgeTypedFailure, JSON.stringify({ ok: indexSync.ok, code: indexSync.code, v: indexSync.verdict }).slice(0, 240))
-      skip('project_index sync 真正建索引并判 fresh', '本机未安装知识内核（.runtime/knowledge/core/dist/verbs.js 缺失）', 'RAG 建索引与新鲜度判定未验证')
-    }
+    // This harness starts an advisor stub, not /api/knowledge. A local verbs.js
+    // proves package installation only; it does not make that stub a live RAG service.
+    const expectedKnowledgeError = kernelReady ? 'ERR_KNOWLEDGE_UNAVAILABLE' : 'KNOWLEDGE_RUNTIME_MISSING'
+    check('project_index sync 缺知识服务时类型化拒绝（不冒充成功）', indexSync.ok === false && indexSync.code === expectedKnowledgeError, JSON.stringify({ ok: indexSync.ok, code: indexSync.code }).slice(0, 240))
+    skip('project_index sync 真正建索引并判 fresh', kernelReady ? '本验收仅启动advisor stub，未启动知识服务' : '本机未安装知识内核', 'RAG建索引与新鲜度判定未验证')
     const searched = payload(await client.request('tools/call', { name: 'pinax_knowledge_search', arguments: { projectPath: batchRoot, q: '柯秒' } }))
-    if (kernelReady) {
-      check('knowledge_search 返回结果数组', searched.ok === true && Array.isArray(searched.results), JSON.stringify({ ok: searched.ok, code: searched.code, n: searched.resultCount }).slice(0, 240))
-    } else {
-      check('knowledge_search 未装内核时类型化拒绝（不冒充空结果）', searched.ok === false && Boolean(searched.code), JSON.stringify({ ok: searched.ok, code: searched.code, n: searched.resultCount }).slice(0, 240))
-      skip('knowledge_search 真实检索命中', '本机未安装知识内核', '检索命中、排序与 provenance 未验证')
-    }
+    check('knowledge_search 缺知识服务时类型化拒绝（不冒充空结果）', searched.ok === false && searched.code === expectedKnowledgeError, JSON.stringify({ ok: searched.ok, code: searched.code }).slice(0, 240))
+    skip('knowledge_search 真实检索命中', kernelReady ? 'advisor stub不提供知识检索端点' : '本机未安装知识内核', '检索命中、排序与provenance未验证')
     let badVerb = ''
     try {
       await client.request('tools/call', { name: 'pinax_knowledge_search', arguments: { projectPath: batchRoot, verb: 'kb_write', q: 'x' } })

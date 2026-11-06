@@ -53,7 +53,7 @@ node agent-skills/project-bootstrap/scripts/project-state.mjs "<项目绝对路�
 
 ## 2. 写入一律 MCP 优先，不手搓文件
 
-工具矩阵（19 个工具、参数/上限/幂等语义、typed error 全表）见 [references/mcp-tool-matrix.md](./references/mcp-tool-matrix.md)。
+工具矩阵（20 个工具、参数/上限/幂等语义、typed error 全表）见 [references/mcp-tool-matrix.md](./references/mcp-tool-matrix.md)。
 
 标准导入节奏（整目录，作者稿子形态五花八门时用）：
 
@@ -113,15 +113,24 @@ pinax_project_init → pinax_rule_write ×n → pinax_worldbook_write ×n → pi
 
 ## 4. SQLite：只当派生目录看
 
-`<项目>/.pinax/project.sqlite` 属 **Electron 桌面工程内核**（`electron/projects/projectDatabase.mjs`），
-表只有 `project_items(kind ∈ volume/chapter/reference)` + `file_transactions` + 迁移记录，
-条目只由 `electron/migration/legacyProjectImporter.mjs` 插入。**服务端与 MCP 都不读写它**，所以：
+同一个`<项目>/.pinax/project.sqlite`有两组独立表：
 
-- 空库（`integrity=ok`、`project_items=0`）是正常骨架，不是项目不完整，更不是「必须补数据」的理由。不要用 MCP 伪造行。
-- 需要目录数据时走桌面端导入/迁移；MCP 路线的项目可用性以文件为事实源，不依赖该库。
-- 世界书与规则在该 schema 里没有对应 kind——不要宣称「SQLite 已覆盖全项目」。
-- 只读取库：`-wal` 非空时先让桌面端 checkpoint，别在带 WAL 的库上做只读探针（会写出 `-shm` 时间戳）。
-- 本机 `better-sqlite3` 原生模块 ABI 与仓库依赖不一致，探针请用 Python 标准库 `sqlite3`（脚本已内置该路径）。
+- Electron的`project_items`/`file_transactions`由桌面内核管理，kind仍只有volume/chapter/reference；空表不代表缺稿。
+- `catalog_*`由服务端Worker从文件构建，涵盖正文、设定、大纲、构思、资料、规则。HTTP与MCP已接通；不把它当成正式保存或另一套事实源。
+
+使用`pinax_project_catalog`（本地项目，公网禁用）：
+
+```
+action:"status" → 未建立/过期时显式 action:"sync" → action:"search" / "list" → action:"read"
+```
+
+- status不建库；读取不自动同步。`CATALOG_NOT_INITIALIZED`需先sync；`CATALOG_STALE`需同步后重查；`CATALOG_REVISION_MISMATCH`不能沿用旧依据。
+- 只写`.pinax/project.sqlite`的`catalog_*`表，不改项目原文件、Electron表或schema_migrations。不要用MCP伪造目录行。
+- 命中包含原文件路径、哈希与修订。它是字面检索，RAG仍由`pinax_project_index`/`pinax_knowledge_search`负责；不能互相冒充。
+- 状态卡只读探库，显示catalog项目身份、数量与新鲜度，不同步；WAL非空时跳过读取，保留“未核对”状态，避免探针写出共享内存文件。
+- 普通服务SQLite只读连接可能需要共享内存文件，不能把它当作零文件系统副作用的指纹探针。需要严格只读证明时使用状态卡。
+
+代码与合同见`docs/engineering/project-catalog.md`，服务入口`server/services/projectCatalogService.js`及`server/mcp/tools/catalogTools.js`。
 
 ## 5. hook / 子 agent / 其他 skill 的适配约定
 
@@ -154,7 +163,7 @@ npm run docs:build
 2. 状态卡一致性：`--json` 的 `worldbook.parsed/total`、`rag.current.files`、`sqlite.databases[].read.project_items`
    与磁盘实况抽查一致（用 `ls`/`wc -l` 复核，不要只信脚本）。
 
-`verify:full` 在本工作副本跑不了（没有 `.git`，其 `git diff --check` 子步无法执行）——按现状逐项等价门禁替代并写明。
+当前仓库有`.git`，可按变更范围运行`verify:full`；旧副本“无.git”的历史限制不再适用。目录接线另跑`node scripts/project-catalog-smoke.mjs`。
 
 交付说明必须分层：机器层（跑绿的命令与计数）／语义层（真模型调用做了什么，或明确没做）／规则库空档（哪些只静态接线、哪些未验）。
 
@@ -170,6 +179,6 @@ npm run docs:build
 ## Resources
 
 - [scripts/project-state.mjs](./scripts/project-state.mjs) — 只读状态卡（唯一入口，先跑它）
-- [references/mcp-tool-matrix.md](./references/mcp-tool-matrix.md) — 19 个工具：参数、上限、幂等语义、typed error
+- [references/mcp-tool-matrix.md](./references/mcp-tool-matrix.md) — 20 个工具：参数、上限、幂等语义、typed error
 - [references/rag-sqlite-boundaries.md](./references/rag-sqlite-boundaries.md) — RAG / SQLite 真实能力边界与 `path:line` 证据
 - [references/hooks-and-subagents.md](./references/hooks-and-subagents.md) — hook / 子 agent / skill 叠加的适配约定与派单模板

@@ -22,13 +22,15 @@ function identity(rootPath) {
 
 /**
  * Explicit, offline file-to-SQLite projection. Opening never scans source files;
- * reads never sync implicitly. No server route, watcher, assistant or UI wiring.
+ * reads never sync implicitly. Online callers use the separate Worker service.
  * SQLite's own tables are namespaced; Electron's schema version is untouched.
  */
-export function openProjectCatalog(rootPath, { readOnly = false } = {}) {
+export function openProjectCatalog(rootPath, { readOnly = false, expectedProjectId } = {}) {
   const { root, projectId } = identity(rootPath)
+  if (expectedProjectId !== undefined && expectedProjectId !== projectId) throw catalogError('CATALOG_PROJECT_MISMATCH', '项目身份与请求目标不一致')
   const databasePath = safePath(root, '.pinax/project.sqlite', { missing: true })
   for (const suffix of ['-wal', '-shm', '-journal']) safePath(root, `.pinax/project.sqlite${suffix}`, { missing: true })
+  if (readOnly && !fs.existsSync(databasePath)) throw catalogError('CATALOG_NOT_INITIALIZED', '尚未建立派生目录')
   const db = new DatabaseSync(databasePath, { readOnly })
   try {
     db.exec('PRAGMA busy_timeout=5000; PRAGMA foreign_keys=ON;')

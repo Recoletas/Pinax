@@ -82,6 +82,9 @@ jobs:
       - name: StoryAgent integration regression
         run: npm run verify:storyagent
 
+      - name: Local project catalog integration
+        run: npm run smoke:project-catalog
+
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15

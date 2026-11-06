@@ -14,9 +14,10 @@ import { expertTools } from './tools/expertTools.js'
 import { writeTools } from './tools/writeTools.js'
 import { importTools } from './tools/importTools.js'
 import { knowledgeTools } from './tools/knowledgeTools.js'
+import { catalogTools } from './tools/catalogTools.js'
 
 export const MCP_SERVER_NAME = 'pinax-local'
-export const MCP_SERVER_VERSION = '0.5.0'
+export const MCP_SERVER_VERSION = '0.6.0'
 
 export const tools = [
   ...projectTools,
@@ -27,7 +28,8 @@ export const tools = [
   ...expertTools,
   ...writeTools,
   ...importTools,
-  ...knowledgeTools
+  ...knowledgeTools,
+  ...catalogTools
 ]
 const toolsByName = new Map(tools.map((tool) => [tool.name, tool]))
 
@@ -36,6 +38,7 @@ const INSTRUCTIONS = [
   '浏览器缓存项目没有可读目录，调用会返回 ERR_NOT_LOCAL_PROJECT。',
   '先 pinax_project_list / pinax_project_open 定位项目，再用 chapter / worldbook / outline 工具读取。',
   '章节正文用 pinax_chapter_read 分页读取，避免一次塞满上下文。',
+  '跨正文/设定/构思的字面搜索用pinax_project_catalog；先status，过期时显式sync。RAG仍用pinax_project_index/knowledge_search。',
   '新建项目用 pinax_project_init；作者既有稿子整目录进项目用 pinax_project_import（先 dryRun 看计划，再 dryRun:false 落盘），单类文本用 pinax_rule_write / pinax_worldbook_write / pinax_chapter_import（只导入，不生成）。',
   'RAG 是文件目录的派生投影：导入或改完资料后用 pinax_project_index（status 只盘点，sync 走既有索引链）同步，检索用 pinax_knowledge_search；正文/大纲不进 RAG 输入集。',
   'pinax_agent_ask 会把项目上下文交给本机 Pinax 既有 Agent 任务链做只读问答，不写文件。',

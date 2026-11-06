@@ -32,7 +32,7 @@
 | 当前核对范围 | 代码入口 | 结果与边界 |
 |---|---|---|
 | 体验与跑团 | Core `experience/`；Host `gameStore`和原服务路径 | 已抽取并在两端实际消费，不再列为待抽取；Host保留状态容器和平台能力。两端315项跑团、20项会话矩阵与真实浏览器恢复旅程通过，非真实模型质量证据 |
-| SQLite应用接线 | `server/services/projectCatalogDb.js`及派生目录模块 | 离线隔离检查已有，尚未接实际应用；不属于本批Core规则搬迁，后续由平台方向接入 |
+| SQLite应用接线 | `projectCatalogService` Worker、`/api/localmirror/catalog`、MCP `pinax_project_catalog` | 已接本地应用读/显式同步：新鲜度/版本检查、命中来源和状态卡；不改文件事实源、Electron表或RAG。六Store正式文件写入适配与设备验收仍由平台方向继续 |
 | 后续交付验收 | 各Host与组员任务 | 跨设备/真机/真实模型和平台存储接线单列，不因共享包可导入而自动完成；Next按作者要求暂停 |
 
 前面已列业务批次现已通过实际Host接线；这不等于所有平台迁移、后续功能或产品验收完成。后续按原A/B/C方向分工，避免继续用“抽Core”承包新的功能建设。
