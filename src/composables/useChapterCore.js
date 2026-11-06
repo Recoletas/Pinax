@@ -1,4 +1,4 @@
-import { chapterRevision, createChapterService, createSyncChapterService } from '@pinax/core'
+import { chapterRevision, createSyncChapterService } from '@pinax/core'
 import { createBrowserChapterStore } from '../services/writing/chapterCoreStore.js'
 
 /**
@@ -6,7 +6,7 @@ import { createBrowserChapterStore } from '../services/writing/chapterCoreStore.
  * 保存仍走既有 saveBooks（它会合并 fresh 探索/大纲并写 localStorage）。
  * 业务创建/修订/错误语义在独立 @pinax/core 包，不在页面里复制。
  *
- * 创建仍用异步 Service；Web 页面保存是同步布尔返回，因此保存走与异步版
+ * 当前浏览器工作集读写均同步，因此这里只载入同步 Service；与异步版
  * 共用同一套校验/domain 的 createSyncChapterService。
  */
 export function useChapterCore({ books, chapters, saveBooks }) {
@@ -22,15 +22,8 @@ export function useChapterCore({ books, chapters, saveBooks }) {
     })
   }
 
-  function service() {
-    return createChapterService({
-      store: store(),
-      idFactory: () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    })
-  }
-
   function syncService() {
-    return createSyncChapterService({ store: store() })
+    return createSyncChapterService({ store: store(), idFactory: () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })
   }
 
   function listChapters(bookId) {
@@ -47,7 +40,7 @@ export function useChapterCore({ books, chapters, saveBooks }) {
     if (!book) return { ok: false, error: { code: 'BOOK_NOT_FOUND', message: '作品不存在' } }
     const before = chapters.value.slice()
     book.chapters = chapters.value
-    const created = await service().create(bookId, {
+    const created = await syncService().create(bookId, {
       title: '',
       content: '',
       extra: { contentFormat: 'md', outlineItems: [], wordCount: 0 }

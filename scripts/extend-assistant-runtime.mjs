@@ -7,9 +7,10 @@ export function copyAssistantRuntimeFiles(target) {
   for (const file of assistantRuntimeFiles) fs.copyFileSync(path.join(root, file), path.join(target, path.basename(file)))
   // Runtime delivery carries the pinned Core contracts, not a second hand-maintained copy.
   const coreRoot = path.join(root, 'node_modules/@pinax/core/src/agent')
-  for (const name of ['assistantEntryDetails', 'assistantEditProposal', 'assistantPermission']) {
+  for (const name of ['assistantEntryDetails', 'assistantEditProposal', 'assistantPermission', 'assistantWritingMethods', 'requestModelConfig', 'assistantUserInput', 'assistantErrors']) {
     fs.copyFileSync(path.join(coreRoot, `${name}.js`), path.join(target, `${name}.js`))
   }
+  fs.copyFileSync(path.join(coreRoot, 'nativeAssistantSession.js'), path.join(target, 'nativeAssistantSessionCore.js'))
   const proposalFile = path.join(target, 'assistantEditProposal.js')
   const proposalSource = fs.readFileSync(proposalFile, 'utf8')
   if (!proposalSource.includes('{ idFactory } = {}')) throw new Error('Pinned Core identity adapter anchor changed')
@@ -202,5 +203,5 @@ export async function runCompleteStream(cfg, request, onDelta, signal, onEvent) 
     '                    res.write("data: [DONE]\\n\\n");',
     '                    res.write("data: " + JSON.stringify({ type: "complete", result }) + "\\n\\n");\n                    res.write("data: [DONE]\\n\\n");'
   ]])
-  return createHash('sha256').update(fs.readFileSync(import.meta.filename)).update(assistantRuntimeFiles.map(file => fs.readFileSync(path.join(target, path.basename(file)))).reduce((all, buffer) => Buffer.concat([all, buffer]), Buffer.alloc(0))).digest('hex')
+  return createHash('sha256').update(fs.readFileSync(path.join(target, 'nativeAssistantSessionCore.js'))).update(fs.readFileSync(import.meta.filename)).update(assistantRuntimeFiles.map(file => fs.readFileSync(path.join(target, path.basename(file)))).reduce((all, buffer) => Buffer.concat([all, buffer]), Buffer.alloc(0))).digest('hex')
 }

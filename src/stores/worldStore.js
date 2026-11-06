@@ -1,3 +1,4 @@
+import { createWorldbookEntryEditor } from '@pinax/core/domain/worldbookEntryEditor'
 import { recoverAssistantEdits } from '../services/storage/assistantEditJournal.js'
 import { defineStore } from 'pinia'
 import { getItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
@@ -836,49 +837,11 @@ export const useWorldStore = defineStore('world', {
 
       const entry = worldbook.entries[entryIdx]
       if (options.expectedFingerprint !== undefined && worldbookEntryEditFingerprint(entry) !== options.expectedFingerprint) throw new Error('条目已在别处更新，当前输入仍保留。请先保留输入再重新载入。')
-      // A1.3 守卫：structured entry 被用户编辑了「sync 会覆盖的字段」
-      // (name/type/injection) 时，标记 userTouched，避免后续 reload 被静默还原。
-      const isStructuredEntry = entry.metadata?.importSource === 'structured-setting' ||
-        Boolean(entry.metadata?.structuredSettingRef)
-      const isStructuredCharacterCard = Boolean(entry.metadata?.structuredCharacterKey)
-      const touchedByUser = isStructuredEntry && (
-        Object.prototype.hasOwnProperty.call(updates, 'name') ||
-        Object.prototype.hasOwnProperty.call(updates, 'type') ||
-        Object.prototype.hasOwnProperty.call(updates, 'injection') ||
-        (isStructuredCharacterCard && (
-          Object.prototype.hasOwnProperty.call(updates, 'content') ||
-          Object.prototype.hasOwnProperty.call(updates?.metadata || {}, 'characterProfile')
-        ))
-      )
-      let updatedBase = {
-        ...entry,
-        ...updates,
-        id: entryId, // 不可更改
-        metadata: {
-          ...entry.metadata,
-          ...(updates.metadata && typeof updates.metadata === 'object' ? updates.metadata : {}),
-          updatedAt: Date.now(),
-          ...(touchedByUser ? { [STRUCTURED_USER_TOUCHED_KEY]: true } : {})
-        }
-      }
-      if (
-        String(updatedBase.type || '').trim().toLowerCase() === 'character' &&
-        Object.prototype.hasOwnProperty.call(updates, 'content') &&
-        !Object.prototype.hasOwnProperty.call(updates?.metadata || {}, 'characterProfile')
-      ) {
-        updatedBase = {
-          ...updatedBase,
-          metadata: {
-            ...updatedBase.metadata,
-            characterProfile: parseCharacterEntryProfile({
-              ...updatedBase,
-              metadata: { ...updatedBase.metadata, characterProfile: null }
-            })
-          }
-        }
-      }
-
-      const normalizedEntry = normalizeEntryVoice(updatedBase)
+      const normalizedEntry = createWorldbookEntryEditor({
+        parseCharacterProfile: parseCharacterEntryProfile,
+        normalizeVoice: normalizeEntryVoice,
+        userTouchedKey: STRUCTURED_USER_TOUCHED_KEY
+      })(entry, updates, entryId)
       const updated = normalizedEntry.type === 'location'
         ? createPlaceEntryPatch({
             ...getPlacePayloadFromEntry(normalizedEntry),

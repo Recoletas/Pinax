@@ -39,7 +39,8 @@ import {
 } from '../narrativeResourceIndex.js'
 
 export const AUTHORING_KNOWLEDGE_QUERY_SESSION_SCHEMA_VERSION = 1
-export const AUTHORING_KNOWLEDGE_TASK_ID = 'authoring.knowledge.query'
+import { AUTHORING_KNOWLEDGE_TASK_ID } from './authoringKnowledgeAnswerContract.js'
+export { AUTHORING_KNOWLEDGE_TASK_ID }
 
 const MAX_EVIDENCE = 28
 const MAX_CONTEXT_CHARS = 28000

@@ -2,7 +2,7 @@
 
 2026-11-06 集中交付补充：此前11-05的“未验证”说明为当轮证据。最新代码已通过完整门禁（30文件/290用例）及书稿导入、章节导入、选区引用、备份恢复4条隔离浏览器旅程；真实模型恢复质量仍未验收。提交与细项见 docs/LOG.md。
 
-2026-11-05 Core 分离接续（源码/依赖已调整，未做功能验证）：Web 章节读取/创建/保存/删除的 composable 与浏览器 Store，以及离线 SQLite Catalog 的大纲规范化，均消费固定的独立 `@pinax/core` v0.8.0 包。产物与来源记录在 `vendor/core/`，锁文件记录 integrity；不要求部署环境存在兄弟仓库。旧 `packages/core` 仅暂留大纲端点校验 WIP 与历史合同用例，应用不再从中导入。其余业务和助手审阅仍在应用层，不能把包消费接通等同于整体 Core 迁移完成。
+2026-11-06 Core抽取接续：Web、Pinix和Next固定消费独立`@pinax/core`0.10.0，来源`9bc4fa847fb15ce239a5400a44d6741ac3466813`，产物及完整性回执位于各仓`vendor/core/`。不要求运行环境存在兄弟仓库；旧`packages/core/src`仅为历史测试转发。下面区分已共享规则和仍由Host承担的能力，未宣称全量迁移完成。
 
 核对日期：2026-10-16。实现基线为 main 的 `cb6ee525`，发布记录见 [2026-10-15 回执](../agent-runs/release-20261015.md)。本文描述代码职责；运行检查和模型质量证据见[验证状态](../src/test-status.md)。
 
@@ -11,11 +11,11 @@
 
 ## 2026-11-06 分工公共基线
 
-Web锁定独立`@pinax/core`0.9.0；来源commit及完整性见vendor/core/provenance。`packages/core/src`仅为历史测试路径转发，实际业务不再双份维护。权限/修改工具schema/条目属性来自Core子路径；运行器打包复制固定包合同并将实际交付字节纳入extension哈希，不依赖Host的node_modules。
+Web、Pinix、Next锁定独立`@pinax/core`0.10.0；来源commit及完整性见vendor/core/provenance。`packages/core/src`仅为历史测试路径转发，实际业务不再双份维护。权限/修改工具schema/条目属性来自Core子路径；运行器打包复制固定包合同并将实际交付字节纳入extension哈希，不依赖Host的node_modules。
 
 `assistantEditTransaction`只注入编辑器文档与人物卡投影，修改准备、原文定位、依赖、采纳/拒绝/撤销在Core中计算，Host仍负责实际授权与持久化后发布。审阅工作集和结束审阅决定也来自Core。Web助手沿原日志格式使用Core的journal协调器；章节适配器写入失败/抛错恢复内存、修订、侧车和列表/章节引用，保留作者尚未保存的输入。
 
-公共事务命令携带projectId/operationId与实体预期修订，Core负责版本和幂等决定；Host负责键布局、锁、实际持久化。日志是逆向补偿与回读确认，不宣称跨存储ACID。异步flush只有明确成功才发布durable，否则PERSISTENCE_PENDING，沿同操作恢复。完整Pi循环、传输、原生存储/文件事务和上下文业务编译仍归既有owner，不因抽包自动变为已共享。Pinix/Next应用页面未在本轮迁移，其平台接入可按三组分工推进。
+公共事务命令携带projectId/operationId与实体预期修订，Core负责版本和幂等决定；Host负责键布局、锁、实际持久化。日志是逆向补偿与回读确认，不宣称跨存储ACID。异步flush只有明确成功才发布durable，否则PERSISTENCE_PENDING，沿同操作恢复。上下文编译/来源读取/记忆排序、正文内核/编排/文档结构以及书籍/大纲/速记仓储已入Core，Web与Pinix对应原路径转发并注入存储。两端条目更新使用同一编辑工厂，Web/Next共用无损世界书文件合同。三端章节真实调用均已接，Next文件服务队列内校验删除修订。原生Pi会话装配与Next工具循环/策略/审计均来自Core子路径；这仍是两种不同运行方式，不等于会话与权限协议已经合并。传输、SDK、文件原子IO与原生镜像flush留Host适配，其他载体及跨端任务/持久化接线仍需收口，不能作为组员任务转移后宣布前置完成。
 
 ## 1. 运行结构
 
