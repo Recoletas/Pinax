@@ -1,14 +1,14 @@
 # Pinax 共享业务内核统一计划（Web / Pinix / Next）
 
 日期：2026-10-31  
-状态：执行中（M0/M1 已启动）  
-目标读者：Web、Pinix Mobile、Next 极简版三端维护者
+状态：执行中（主Pinax Core迁移，尚未全部完成）  
+目标读者：主Pinax与Pinix维护者；Next仅保留历史对照
 
-> 当前执行口径：Core0.13.0（fc5fb44）已完成本轮约定的迁移前置本地实现：Next主入口与Web/Pinix运行器共用Pi原生会话装配，旧手写循环只保留兼容入口；媒体/图片历史/素材规则与二进制端口共享，浏览器与文件Host实际接入。三端同包，来源SHA与安装源码逐文件一致。 本文区分已实施的共享内核/Host接线和后续产品方向；历史切片保留在LOG，不用过时盘点覆盖现有实现。
+> 当前范围更正（2026-11-06）：主Pinax的Core抽取及Pinix复用；暂停Next适配工作。0.13的已实现模块和历史验证保留，但“全部分工前置完成”结论撤回。0.14已抽取漫画页、分镜/版本和生成/归档等本批规则；剩余资料/体验与SQLite应用接线见下表。平台IO/网络/SDK保留在Host。
 
-## 分工前置进度（2026-11-06，本地实现与验证完成）
+## 分工前置进度（2026-11-06，继续迁移）
 
-独立 `@pinax/core` **0.13.0** 来源`fc5fb442c369d1b31ecd62fed125a9a21c20a645`，三端以同一tarball与provenance固定消费。Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Next verify:next exit0（820内核/238界面，含原生Pi脚本供应商及打包模块执行）；Core85例/162模块导入、静态检查、隔离npm消费通过。两端真实浏览器媒体IDB/PNG解码/FileReader/刷新/备份回填通过；Pinix移动构建/Android同步通过。 以下可以作为首批分工的实际公共基线；不宣称模型质量或设备发布已经验收。
+主Pinax与Pinix当前固定消费独立 `@pinax/core` **0.14.0**，来源`3aa5421dc789938eaf8d79feb28c5791c2ef6d99`；Next保留既有分支，未随本轮升级。Core0.14.0（3aa5421）完成本批23模块抽取：漫画页/草稿/阶段与候选、分镜文档/版本/快照、正文改编/脚本、生成归档/重试/迟到归属、布局/文字/导出、图片桥与渠道配置。主Pinax和Pinix实际调用同一固定包；浏览器存储/事件、HTTP与供应商适配留Host。Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Core85例与185模块无Host导入/静态检查/隔离npm消费通过。脚本供应商验证漫画脚本→保存、旧稿保护新图、归档失败复用原图重试、迟到候选不清新请求，以及分镜版本/恢复/失败保留/ZIP。两端真实浏览器存储/刷新/导出与阶段图片显示通过；Pinix预览1100/390明暗截图已查看并清理。移动构建与Android同步通过，未验APK/真机/真实模型质量。以下是已迁移部分的基线，不代表整体前置结束。
 
 | 公共接口 | 已实施内容 | Host边界与剩余接线 |
 |---|---|---|
@@ -19,13 +19,23 @@
 | `createAssistantProposalEngine` | 冻结/定位、依赖、冲突、采纳、拒绝、撤销及保护快照计算 | B提供编辑器和人物卡投影；所有正式保存通过Host事务，不允许直接把计算结果当已保存 |
 | 审阅与权限合同 | 已处理决定、去重、结束审阅、权限判断、工具schema与富关系归一 | Web已调用；运行器候选包携带同一固定Core合同，不依赖开发仓库的node_modules |
 
-**可分配的首批任务（组员实施未启动）**：A把持久化/恢复/备份适配接到公共接口；B完成移动编辑器、章节组织与审阅呈现；C先交付一个完整媒体生成→保存→重开→失败恢复流程，随后持续承担漫画/视频等方向。任务按方向分工，后续功能属于各方向的长期范围，并非取消。跨组共享合同、版本与集成由维护者负责。
+**前置完成后拟分配的首批任务（组员实施未启动）**：A把持久化/恢复/备份适配接到公共接口；B完成移动编辑器、章节组织与审阅呈现；C先交付一个完整媒体生成→保存→重开→失败恢复流程，随后持续承担漫画/视频等方向。任务按方向分工，后续功能属于各方向的长期范围，并非取消。跨组共享合同、版本与集成由维护者负责。
 
-本轮前置不再剩下两条平行模型循环或未接入的媒体二进制端口。UI、SDK、HTTP、文件fsync、原生镜像与数据库打开是保留的平台职责，不能为追求“所有文件进Core”抹掉Host边界。Next的漫画记录/Comfy引用依旧是原能力，不声称已自动下载产物；后续媒体生成闭环由C在已接公共端口上实现。
+0.13接通了当时列出的运行/二进制端口，但清单遗漏漫画页、分镜/版本及生成业务等Host实现。UI、SDK、HTTP、文件fsync、原生镜像与数据库打开是保留的平台职责，不能为追求“所有文件进Core”抹掉Host边界。Next的漫画记录/Comfy引用依旧是原能力，不声称已自动下载产物；后续媒体生成闭环由C在已接公共端口上实现。
 
-新增公共接缝：`createCarrierNativeRunner`、`createGatewayNativeModels`复用`createNativeAssistantSessionModule`；`createMediaAssetModule`、`createNarrativeAssetModule`保存媒体/素材规则，`createFileBinaryStore`连接Next受控文件服务。运行时`createMediaBinaryStore`绑定原项目、插件与目录；Web/Pinix沿用现有IDB schema和备份格式。Next每轮原生执行日志与UI分支JSONL职责分离，不通过复用旧回答尾部实现重新生成。任务工具、提案与文件服务在发起时固定归属，切作品不换目标。Next未披露模型容量时不启用猜测式主动压缩；真实模型容量仍由供应商报告。
+0.14实际入口：`createComicPageRepository`、`createStoryboardRepository`、`createComicProductionService`、`createComicAdaptationService`、`createComicScriptService`与`createShotExporter`，加来源/图片桥及渠道配置仓储。原路径仅转发或注入Host端口。Pinix草稿保存接`saveComicPageDraft`，三个漫画显示/编辑组件读取同一显示选择，阶段产物不再被当成普通图片候选；未重做UI布局。模型偏好广播由Web注入，Pinix继续原有字符串写入；图片选择键补齐备份与键分类。
 
-## 当前执行批次：先收口依赖，再收口事务与 Harness（2026-11-05）
+当前仍需继续的实际owner：
+
+| 范围 | 代码入口 | 当前边界 |
+|---|---|---|
+| 资料归档 | `src/services/worldbook/worldbookSourceArchive.js` | 产物/分块/工作区/容量等业务与IndexedDB同文件，仍需分离业务；数据库打开与事务可留Host |
+| 体验与跑团 | `src/services/experience/`，如`gameSessionNormalization`、`gameBranchTurnGraph`与`roleplay/` | 状态归一、分支/回合/触发规则仍有Host实现，需逐owner抽取，不把UI当成保留业务副本的理由 |
+| SQLite应用接线 | `server/services/projectCatalogDb.js`及派生目录模块 | 已有离线隔离验证，尚未接实际应用；不代表所有正式存储迁移完成 |
+
+这些未完成项仍由本次前置工作继续处理；具体平台IO与后续UI/设备任务另分。
+
+## 历史执行顺序（2026-11-05，当前范围以上表为准）
 
 作者将后续工作重心明确为底层分离。执行顺序如下；下表区分已经实施与后续设计，不把导出接口当作 Host 已接入。
 

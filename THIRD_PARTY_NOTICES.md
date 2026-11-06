@@ -26,7 +26,7 @@ Utopia `ca4678084da46311c1d24cb65d05f340d8903e54` 的 `crates/utopia-store/src/t
 固定上游 [yuanbw2025/storyforge](https://github.com/yuanbw2025/storyforge/tree/cd1236cfa5c7cbd307ed0dfac5487f9fe5c98aed)，MIT，Copyright (c) 2026 yuanbw2025。
 
 - `src/services/experience/roleplay/third-party/storyforgeDice.js` 从 `src/lib/ttrpg/dice.ts` 移植闭合骰式解析、范围检查与 uint32 拒绝采样；去 TypeScript 类型及 SHA-256 V2 变体，保留来源。
-- `src/services/media/comicRequestGuard.js` 参考 `src/lib/comic/image-request-guard.ts` 的请求登记/未知结果策略，按 Pinax owner 重写；不是逐行复制。其余漫画与场景代码按设计语义本地实现，未导入上游媒体或规则全文。
+- `@pinax/core/media/comicRequestGuard`（原`src/services/media/comicRequestGuard.js`现为转发入口） 参考 `src/lib/comic/image-request-guard.ts` 的请求登记/未知结果策略，按 Pinax owner 重写；不是逐行复制。其余漫画与场景代码按设计语义本地实现，未导入上游媒体或规则全文。
 - [完整 MIT 文本](./public/third-party/storyforge-LICENSE.txt) 随 public 目录进入构建产物，不依赖压缩后可能被删除的源码注释。本仓库根许可证不替代该许可。
 
 ### Azgaar（原计划登记）

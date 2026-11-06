@@ -2,7 +2,7 @@
 
 2026-11-06 集中交付补充：此前11-05的“未验证”说明为当轮证据。最新代码已通过完整门禁（30文件/290用例）及书稿导入、章节导入、选区引用、备份恢复4条隔离浏览器旅程；真实模型恢复质量仍未验收。提交与细项见 docs/LOG.md。
 
-2026-11-06 Core抽取接续：Web、Pinix和Next固定消费独立`@pinax/core`0.12.0，来源`8b046d0`，产物及完整性回执位于各仓`vendor/core/`。不要求运行环境存在兄弟仓库；旧`packages/core/src`仅为历史测试转发。下面区分已共享规则和仍由Host承担的能力，未宣称全量迁移完成。
+2026-11-06 Core当前接线：主Pinax和Pinix消费独立`@pinax/core`0.14.0（`3aa5421`），固定tarball/provenance在各自`vendor/core/`。不依赖开发机的兄弟仓库；Next保留旧分支，本轮不改。原0.13的“前置全部完成”判断已撤回，资料归档、体验和SQLite应用接线仍未收口。
 
 核对日期：2026-10-16。实现基线为 main 的 `cb6ee525`，发布记录见 [2026-10-15 回执](../agent-runs/release-20261015.md)。本文描述代码职责；运行检查和模型质量证据见[验证状态](../src/test-status.md)。
 
@@ -17,9 +17,9 @@ Web、Pinix、Next锁定独立`@pinax/core`0.12.0；来源commit及完整性见v
 
 公共事务命令携带projectId/operationId与实体预期修订，Core负责版本和幂等决定；Host负责键布局、锁、实际持久化。日志是逆向补偿与回读确认，不宣称跨存储ACID。异步flush只有明确成功才发布durable，否则PERSISTENCE_PENDING，沿同操作恢复。上下文编译/来源读取/记忆排序、正文内核/编排/文档结构以及书籍/大纲/速记仓储已入Core，Web与Pinix对应原路径转发并注入存储。两端条目更新使用同一编辑工厂，Web/Next共用无损世界书文件合同。三端章节真实调用均已接，Next文件服务队列内校验删除修订。原生Pi会话装配与Next工具循环/策略/审计均来自Core子路径；这是0.10时的两种运行方式；0.13已统一实际执行入口，见下文。传输、SDK、文件原子IO与原生镜像flush留Host适配，其他载体及跨端任务/持久化接线仍需收口，不能作为组员任务转移后宣布前置完成。
 
-0.11补充：Next各载体文件工具和记录型媒体工具、会话状态与JSONL折叠/追加恢复来自Core；Node文件、路径、项目事件和知识服务继续注入。文件工具格式保留原样，不把构思文件等同全局速记、不把媒体JSON记录等同二进制资产迁移。Web/Pinix的写作版本/崩溃恢复及冻结任务/依赖校验共享；地理索引函数留Host注入。Pinix设备写回确认绑定保存发起时的编辑与章节，晚到回执不清新恢复稿。Next在途回答绑定原store，会话保存携带原项目根且主进程只接已知项目根；切换后新请求不会误用新项目。该批次当时尚余运行协议与媒体，现由0.13收口。
+0.11补充：Next各载体文件工具和记录型媒体工具、会话状态与JSONL折叠/追加恢复来自Core；Node文件、路径、项目事件和知识服务继续注入。文件工具格式保留原样，不把构思文件等同全局速记、不把媒体JSON记录等同二进制资产迁移。Web/Pinix的写作版本/崩溃恢复及冻结任务/依赖校验共享；地理索引函数留Host注入。Pinix设备写回确认绑定保存发起时的编辑与章节，晚到回执不清新恢复稿。Next在途回答绑定原store，会话保存携带原项目根且主进程只接已知项目根；切换后新请求不会误用新项目。该批次当时尚余运行协议与媒体；其中运行/二进制接缝由0.13接续，漫画/分镜业务由0.14继续。
 
-0.12补充：世界书状态/动作、创建/更新/删除、条目管理与结构化/资料迁移在`@pinax/core/worldbook/worldbookState`；Host原路径绑定Pinia、键布局、归档/地图/文件端口。纯Node消费验证了无Pinia的库CRUD与importKey幂等条目。Web具备localmirror适配，Pinix明确关闭该能力并继续快照存储。`memory/*`包含候选、历史outbox、事实/知情账本及时序/查询/审计/备份；Dexie构造/升级仍在Host，历史和事实统一使用现有v4装载器。Core数据库端口保留table/where/transaction查询形状，不宣称已提供SQLite账本适配。该批次余项由0.13接续完成。
+0.12补充：世界书状态/动作、创建/更新/删除、条目管理与结构化/资料迁移在`@pinax/core/worldbook/worldbookState`；Host原路径绑定Pinia、键布局、归档/地图/文件端口。纯Node消费验证了无Pinia的库CRUD与importKey幂等条目。Web具备localmirror适配，Pinix明确关闭该能力并继续快照存储。`memory/*`包含候选、历史outbox、事实/知情账本及时序/查询/审计/备份；Dexie构造/升级仍在Host，历史和事实统一使用现有v4装载器。Core数据库端口保留table/where/transaction查询形状，不宣称已提供SQLite账本适配。其中运行/二进制接缝由0.13接续，漫画/分镜等业务由0.14继续；总体迁移尚未完成。
 
 ## 1. 运行结构
 
@@ -42,7 +42,9 @@ Pinax 是 Vue 3 工作区、浏览器本地数据和 Express 服务的组合。�
 
 模型配置统一在 SettingsPopup 的 models 分区。`useSettingsPopup.open('ai'/'media')` 保留旧调用别名并定位文本/图片；工作区快速选择通过 `ModelPickerMenu` 复用对应 store，`modelConfigEvents` 在同页同步增删改与默认选择。重新生成不重置当前权限。助手发送前复制模型和权限，`prepared.modelConfig/modelSettings` 只在内存及请求链中使用，不进入消息或任务日志；正文委托将模型快照传入原推演 executor。Express 的 AsyncLocalStorage 将本次配置传给 complete/stream/capability，运行器 `requestScopedRuntimeConfig` 复制 cfg 后运行，不调用全局 applyModelPatch、不持久化密钥。公网拒绝请求自定义文本配置；旧运行器缺少 requestModels 能力时，自定义模型请求明确拒绝，避免静默用错模型。
 
-0.13当前基线：`@pinax/core`来源`fc5fb44`。Next的主进程工具链调用共享`carrierNativeSession → nativeAssistantSession → Pi AgentHarness`，不再进入旧8步循环；60秒整轮超时默认关闭，工具面不再截为6把。取消传至HTTP，提案/审计绑定原fileService，UI分支历史冻结后传入。Pi逐轮日志落原项目`.pinax/pi-sessions/`，UI会话与分支继续原JSONL合同。任务面未披露容量时关闭无依据的主动容量压缩；供应商溢出恢复沿用共享Pi路径。懒加载Pi模块随包内联，构建门禁会实际执行产物，保留原裸导入和包体预算。
+0.14媒体接线：23个漫画/分镜/生成/导出/配置模块进入Core，旧服务路径转发纯函数或实例化仓储/服务。漫画页schema5、素材媒体ID及分镜文档schema1不变，不迁作者数据。Core负责草稿字段合并、防旧稿覆盖、阶段/候选来源、生成结果归属和保存重试；Host提供字符串存储、IDB/Blob、页面变更事件、书籍/地点查询和模型/供应商请求。视频HTTP/下载与原生地址解析留Host。Pinix复用主项目规则并补显示/保存入口，stage图保持原身份和谱系，不伪造普通take；备份保留图片模型选择键。Node/npm消费与真实浏览器均验证了版本/恢复、失败保留、迟到结果和导出；没有以脚本供应商冒充真实模型质量。
+
+0.13历史Next分支适配（本轮不继续该分支）：`@pinax/core`来源`fc5fb44`。Next的主进程工具链调用共享`carrierNativeSession → nativeAssistantSession → Pi AgentHarness`，不再进入旧8步循环；60秒整轮超时默认关闭，工具面不再截为6把。取消传至HTTP，提案/审计绑定原fileService，UI分支历史冻结后传入。Pi逐轮日志落原项目`.pinax/pi-sessions/`，UI会话与分支继续原JSONL合同。任务面未披露容量时关闭无依据的主动容量压缩；供应商溢出恢复沿用共享Pi路径。懒加载Pi模块随包内联，构建门禁会实际执行产物，保留原裸导入和包体预算。
 
 媒体与素材规则在`media/mediaAssetStore`及`media/narrativeAssets`，Host原路径实例化工厂；IDB/Blob解码/FileReader留浏览器。Web/Pinix均保留现有`pinax-media/assets`及ZIP合同；Pinix历史无作品字段的兼容迁移有显式Host入口。Next `fileBinaryStore`调用原文件服务的二进制口，经过plugin归属/scope/CAS/原子落盘及删除快照；字节不转UTF-8。运行时提供绑定项目的二进制Store；不声称Comfy元数据引用已变成自动下载。媒体schema、作者作品和用户服务未迁移或重启。
 

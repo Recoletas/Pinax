@@ -30,6 +30,8 @@ Pinix旧章节修订需从editorDocument冻结；沿用Web规则，不再复制�
 
 Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Next verify:next exit0（820内核/238界面，含原生Pi脚本供应商及打包模块执行）；Core85例/162模块导入、静态检查、隔离npm消费通过。两端真实浏览器媒体IDB/PNG解码/FileReader/刷新/备份回填通过；Pinix移动构建/Android同步通过。最终产物sha256 `2c0a05991b5fdc66237c401569d644befcb728f31df464197916ce6445aefed0`，三端安装源码逐文件等于干净Core。未调用付费模型、未验APK/Android真机或真实供应商长期质量；未推送部署、未重启用户服务。本批不改写作提示词，不把平台差异伪装成相同能力。
 
+
+0.14范围更正：0.13将当时列出的运行/二进制接线完成误写为全量前置完成，现撤回。当前只继续主Pinax与Pinix，不继续改Next。Core0.14.0（3aa5421）完成本批23模块抽取：漫画页/草稿/阶段与候选、分镜文档/版本/快照、正文改编/脚本、生成归档/重试/迟到归属、布局/文字/导出、图片桥与渠道配置。主Pinax和Pinix实际调用同一固定包；浏览器存储/事件、HTTP与供应商适配留Host。Core保留来源注释，并将StoryForge参考策略的完整MIT文本随包交付。Web verify:full exit0（30/290）、Pinix verify:full exit0（20/200）、Core85例与185模块无Host导入/静态检查/隔离npm消费通过。脚本供应商验证漫画脚本→保存、旧稿保护新图、归档失败复用原图重试、迟到候选不清新请求，以及分镜版本/恢复/失败保留/ZIP。两端真实浏览器存储/刷新/导出与阶段图片显示通过；Pinix预览1100/390明暗截图已查看并清理。移动构建与Android同步通过，未验APK/真机/真实模型质量。整体Core迁移仍未完成：资料归档业务与IndexedDB拆分、体验/跑团状态和回合业务、SQLite派生目录的实际应用接线仍需继续。本轮未修改Next，未推送部署或重启用户服务。产物sha256 `554121ce8888879ed4c0ca30f9770a82b1aa050e952914d82a0803172e6d7d49`，安装源码逐文件与干净Core一致。临时5307/5308及截图在验收后清理。
 ## 2026-11-06 分工前置公共基线
 
 - 独立仓库`/home/recoletas/jiuguan/pinax-core`升级0.9.0，源码commit `5e429bc`：修改计算引擎注入文档/人物投影与ID；共享审阅工作集、完成审阅、权限、工具schema及富关系合同；日志写入、恢复、expected快照及幂等回执；project/entity/revision/operation命令和明确flush确认。失败不确认durable，重试不重复增修订。加入两项综合合同用例，独立测试85/85、包安装消费smoke通过；显式ESLint API扫描独立src/test无错误。大纲端点校验WIP已移交。
