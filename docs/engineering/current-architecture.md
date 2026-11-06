@@ -9,6 +9,8 @@
 
 2026-11-06 数据层接线：[本地项目 SQLite 派生目录](./project-catalog.md)已接Worker、本地HTTP和MCP，显式sync后可跨正文/设定/构思/资料字面检索。项目上下文附目录就绪状态，不暗中同步。文件仍是事实源，浏览器正式保存和RAG链路不变。
 
+共享 Core 的日常开发与跨端更新见 [Core 开发与更新](./core-development.md)。
+
 ## 2026-11-06 分工公共基线
 
 Web、Pinix、Next锁定独立`@pinax/core`0.12.0；来源commit及完整性见vendor/core/provenance。`packages/core/src`仅为历史测试路径转发，实际业务不再双份维护。权限/修改工具schema/条目属性来自Core子路径；运行器打包复制固定包合同并将实际交付字节纳入extension哈希，不依赖Host的node_modules。

@@ -95,7 +95,12 @@
     "smoke:worldbook-settlement": "node scripts/worldbook-settlement-smoke.mjs",
     "smoke:worldbook-localization": "node scripts/worldbook-localization-smoke.mjs",
     "build:knowledge-runtime": "node scripts/build-knowledge-runtime.mjs",
-    "build:agent-runtime": "node scripts/build-storyagent-runtime.mjs"
+    "build:agent-runtime": "node scripts/build-storyagent-runtime.mjs",
+    "core:dev": "node scripts/core-workflow.mjs dev",
+    "core:restore": "node scripts/core-workflow.mjs restore",
+    "core:update": "node scripts/core-workflow.mjs update",
+    "core:status": "node scripts/core-workflow.mjs status",
+    "core:workflow:smoke": "node scripts/core-workflow-smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

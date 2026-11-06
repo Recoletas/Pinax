@@ -1,5 +1,13 @@
 # 开发日志
 
+## 2026-11-06 Core 开发与各端更新
+
+按作者最新目标收缩范围：共享业务在独立 Core 仓库修改，Web/Pinix通过版本更新消费，不把UI默认文件存储、原生设备或Next迁移作为这条流程的前提。本轮新增开发连接、恢复、状态和固定包更新命令；开发连接只改变node_modules，正式安装继续使用不可覆盖的tarball/provenance。Core代码本轮没有改动。
+
+验证（本轮实际运行，均exit0）：Web/Pinix `npm run core:workflow:smoke`，覆盖两宿主隔离、源码编辑、Vite实际读取、依赖清单不变、恢复、脏源/同版本变更拒绝、断链恢复与npm ci；临时宿主安装实际0.16包并连接独立源码/导入/恢复；Web `npm run core:smoke`；两端定向eslint；Web `npm run verify:full` 30文件290例，Pinix同命令20文件200例；Pinix `npm run mobile:check` 22/22。未新增Vitest用例。无作者数据、用户服务或Next变更，未推送部署；本轮未做Windows命令或设备实测。
+
+共享逻辑兼容修改后，各端只更新依赖、验证并构建；新端口或破坏接口仍需Host适配。操作说明见 `docs/engineering/core-development.md`。不需要新增工作流规则。
+
 ## 2026-11-06 Core全量迁移继续（进行中，未完成）
 
 作者指出0.9.0公共接口不等于前置完成，撤回“可以据此分工”的结论；不把未迁入部分转给组员来修改交付范围。
