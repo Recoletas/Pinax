@@ -34,6 +34,8 @@
 
 ## Recently done
 
+- **2026-11-07 新成员入门与分工文档**：新增[入门与分工安排](./plan/team-onboarding-and-work-plan-20261107.md)，介绍三仓关系、Core/Host边界、Pinix当前集成分支、首次运行与阅读顺序、A/B/C首批交付及按每周10–15小时估算的6–8周安排；旧计划和文档导航已指向该入口。是建议安排，未指定成员、未执行排期或修改业务。
+
 - **2026-11-06 Core 开发/跨端更新（本地已实施）**：Web/Pinix 提供同一套 `core:dev/restore/status/update`，临时连接独立源码不改依赖清单，固定更新复用或生成不可覆盖的版本产物与来源记录。两端隔离工作流/Vite读取、实际Core0.16包更新/源码导入/恢复、Web包消费及定向lint通过；两端verify:full exit0（Web30/290，Pinix20/200），Pinix mobile:check 22/22。正式依赖仍为0.16，无业务/存储/UI变更，Next未改，用户服务未动，未推送部署。操作见[Core开发与更新](./engineering/core-development.md)。
 
 - **2026-10-29 合入 PR #8 并修掉评审发现（MCP 本机路线，main）**：贡献者 PR #8（`skkbsgzf`，19 工具 + 内置 skill `project-bootstrap`）经两路只读评审后集成进 main，评审各报 3 项/1 项必须修，全部已修：写路径缺符号链接防护可写出项目根、`pinax_project_init` 无空目录检查会污染作者既有目录、标注 `readOnlyHint:true` 的读工具会经 `recoverMirrorTransaction` 删掉项目目录、以及 `smoke:mcp` 的 RAG 断言在无内核机器上假绿（脚本仍报 all checks passed）。另按建议修了：全局知识检索与 `pinax_expert_list` 补公网闸门、`/mcp` 拒绝反代转发与 nginx 显式 404、`KIND_TEMPLATES` 冻结、MCP 回执改用共享 `createAgentContextLedger`、读侧 500 章截断如实透出、整目录导入拒绝与项目相交的源目录、导入素材进信封时标注「按数据处理」。本机门禁：`verify:full` exit 0（20 文件/200 例、应用与文档构建通过）、`smoke:mcp` 142 passed/2 skipped、`mcp:conformance` 40 项 0 失败、`mcp:dameng` 71 项 0 失败（合成语料，非真稿）。未装知识内核、未配模型，RAG 真命中与回答质量未验证；未部署公网、未重启本地服务。

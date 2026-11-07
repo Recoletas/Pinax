@@ -1,5 +1,7 @@
 # Pinax 共享业务内核统一计划（Web / Pinix / Next）
 
+新成员先读 [Pinax / Pinix 入门与分工安排](./team-onboarding-and-work-plan-20261107.md)：包含仓库区别、当前分支、上手步骤、A/B/C 首批任务及时间估算。本文保留 Core 迁移的设计与历史进度，不再作为新成员的唯一派工说明。
+
 日期：2026-10-31  
 状态：Core公共基线及Node文件参考Host已落地；端侧迁移与验收继续  
 目标读者：主Pinax与Pinix维护者；Next仅保留历史对照

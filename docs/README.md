@@ -9,6 +9,7 @@
 | 使用 Pinax 写作 | [作者使用指南](./user-manual/README.md) · [快速开始](./user-manual/01-quickstart.md) · [常见问题](./user-manual/08-faq.md) |
 | 自行部署或排障 | [README 的本地运行](../README.md#开发者本地运行) · [运行包发布](./engineering/agent-runtime-deployment.md) · [运维排障](./operations/troubleshooting.md) · [服务端配置示例](../server/.env.example) |
 | 参与开发 | [贡献指南](../CONTRIBUTING.md) · [代码地图](./src/code-map.md) · [测试状态](./src/test-status.md) |
+| 新成员入组与任务分工 | [Pinax / Pinix 入门与分工安排](./plan/team-onboarding-and-work-plan-20261107.md) |
 
 面向作者的“帮助”应直接进入用户手册；`docs/src/` 继续承载架构、决策、验证和维护记录，不与作者手册重复维护正文。
 
