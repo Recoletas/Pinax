@@ -1,0 +1,77 @@
+name: Windows desktop release
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/release-desktop.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pinax-windows-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: pinax0.0.1
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: pinax0.0.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Check for existing release
+        id: release
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --json url --jq .url; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install dependencies
+        if: steps.release.outputs.exists != 'true'
+        run: npm ci
+      - name: Package Windows x64
+        if: steps.release.outputs.exists != 'true'
+        env:
+          CC: gcc
+          CXX: g++
+        run: npm run desktop:package -- --platform=win32 --arch=x64
+      - name: Verify and archive Windows application
+        if: steps.release.outputs.exists != 'true'
+        shell: bash
+        run: |
+          mkdir -p release
+          mv out/pinax-win32-x64 release/Pinax-0.0.1
+          test -f release/Pinax-0.0.1/pinax.exe
+          test -f release/Pinax-0.0.1/resources/app.asar
+          test "$(head -c 2 release/Pinax-0.0.1/resources/app.asar.unpacked/node_modules/better-sqlite3/build/Release/better_sqlite3.node)" = MZ
+          cd release
+          zip -qr Pinax-0.0.1-win32-x64.zip Pinax-0.0.1
+          unzip -tq Pinax-0.0.1-win32-x64.zip
+          sha256sum Pinax-0.0.1-win32-x64.zip > Pinax-0.0.1-win32-x64.zip.sha256
+      - name: Publish GitHub Release
+        if: steps.release.outputs.exists != 'true'
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/pinax-release-notes.md" <<'EOF'
+          Pinax 的第一个 Windows x64 桌面版本。
+
+          - 写作工作区包含章节目录、标签页、写作工具和段落整理。
+          - 迁移到项目目录的正文可从文件打开，并直接保存回同一文件。
+          - 设定工作区包含人物、相关事实、人物见闻与关系图。
+
+          解压 ZIP 后运行 `pinax.exe`，可在启动页新建或打开本地项目。
+          EOF
+          gh release create "$RELEASE_TAG" --verify-tag --title "Pinax 0.0.1" \
+            --notes-file "$RUNNER_TEMP/pinax-release-notes.md" \
+            release/Pinax-0.0.1-win32-x64.zip release/Pinax-0.0.1-win32-x64.zip.sha256
