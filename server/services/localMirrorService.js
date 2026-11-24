@@ -570,8 +570,17 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
   }
 
   /** 同步落点：bookId 在注册表绑定过的项目根优先，否则回落文档根（旧行为兼容）。 */
+  function boundProject(bookId) {
+    const entry = readRegistry(resolveAppDataDir()).find(item => String(item.bookId) === String(bookId))
+    if (!entry) return null
+    let marker
+    try { marker = JSON.parse(fs.readFileSync(path.join(entry.rootPath, '.pinax/project.json'), 'utf8')) }
+    catch { throw Object.assign(new Error('已绑定的项目目录不可用，请接回原目录后同步。'), { code: 'ERR_PROJECT_OFFLINE' }) }
+    if (marker.projectId !== entry.projectId) throw Object.assign(new Error('目录中的项目与绑定身份不符。'), { code: 'ERR_PROJECT_IDENTITY' })
+    return entry
+  }
   function resolveBookDir(book) {
-    const entry = readRegistry(resolveAppDataDir()).find((item) => item.bookId === book.id && fs.existsSync(item.rootPath))
+    const entry = boundProject(book.id)
     if (entry) return { dir: entry.rootPath, projectRoot: entry.rootPath, kind: KIND_TEMPLATES[entry.kind] ? entry.kind : 'novel' }
     return {
       dir: path.join(resolveRoot(), `${sanitizeFilename(book.title)}-${String(book.id).replace(/[^a-zA-Z0-9_-]/g, '').slice(-8)}`),
@@ -580,7 +589,7 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     }
   }
 
-  function renderMirror(payload, located, dir) {
+  function renderMirror(payload, located, dir, scope) {
     const error = validatePayload(payload)
     if (error) throw Object.assign(new Error(error), { code: 'ERR_INVALID_INPUT' })
     const book = payload.book
@@ -733,26 +742,32 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     const bookMetadata = { ...book }
     if (bookMetadata.worldbookId === undefined && wb?.id) bookMetadata.worldbookId = wb.id
     for (const key of ['chapters', 'explorations', 'outline', 'outlineNodes', 'outlineEdges', 'projectRoot', 'lastSyncAt']) delete bookMetadata[key]
-    writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify({ schema: MIRROR_SCHEMA, documentSchema: 1, bookId: book.id, title: book.title, book: bookMetadata, chapterFiles, explorationFiles, mirroredAt: now(), ...counts }, null, 2) + '\n')
+    let metadata = { schema: MIRROR_SCHEMA, documentSchema: 1, bookId: book.id, title: book.title, book: bookMetadata, chapterFiles, explorationFiles, mirroredAt: now(), ...counts }
+    if ((scope === 'metadata' || scope === 'chapters') && fs.existsSync(path.join(located.dir, 'meta.json'))) {
+      const original = loadDocumentMetadata(located.dir)
+      if (original?.documentSchema === 1) metadata = scope === 'chapters'
+        ? { ...original, chapters: counts.chapters, chapterFiles, mirroredAt: metadata.mirroredAt }
+        : { ...original, title: book.title, book: { ...original.book, title: book.title, updatedAt: book.updatedAt }, mirroredAt: metadata.mirroredAt }
+    }
+    writeFileAtomic(path.join(dir, 'meta.json'), JSON.stringify(metadata, null, 2) + '\n')
     return { dir: located.dir, counts, projectRoot: located.projectRoot }
   }
 
   function readSyncState(bookId) {
-    const entry = listProjects().find(item => String(item.bookId) === String(bookId))
+    const entry = boundProject(bookId)
     if (!entry) return { revision: 0 }
     recoverMirrorTransaction(entry.rootPath)
     const file = path.join(entry.rootPath, '.pinax', 'sync-manifest.json')
-    return fs.existsSync(file) ? { revision: JSON.parse(fs.readFileSync(file, 'utf8')).revision } : { revision: 0 }
+    return { projectId: entry.projectId, revision: fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')).revision : 0 }
   }
 
-  function mirrorBook(payload, { receipt = null } = {}) {
+  function mirrorBook(payload, { receipt = null, scope = null } = {}) {
     const error = validatePayload(payload)
     if (error) throw Object.assign(new Error(error), { code: 'ERR_INVALID_INPUT' })
     const located = resolveBookDir(payload.book)
-    const result = commitMirrorTransaction({ dir: located.dir, payload, receipt, render: dir => renderMirror(payload, located, dir) })
-    // 词汇表播种必须在事务提交之后落真实目录：renderMirror 写进 generated 临时壳，
-    // 换壳只搬运 emitted 托管清单——词表是用户手改文件，不入托管清单（否则手改被
-    // ERR_LOCAL_EDIT 拦截），只能在 rename 换壳后 create-if-absent。
+    if (payload.expectedProjectId && boundProject(payload.book.id)?.projectId !== payload.expectedProjectId) throw Object.assign(new Error('项目绑定已变更，请重新加载。'), { code: 'ERR_PROJECT_IDENTITY' })
+    const result = commitMirrorTransaction({ dir: located.dir, payload, receipt, scope, render: dir => renderMirror(payload, located, dir, scope) })
+    // 手写词表独立于托管清单，仅在同步完成后按需创建。
     seedLexiconFile(located.dir, payload.book?.title || '')
     return { ...result, worldbookFingerprint: mirrorDomainFingerprint(path.join(located.dir, '世界书')) }
   }
@@ -871,6 +886,7 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     recoverMirrorTransaction(root)
     if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw Object.assign(new Error('目录不存在'), { code: 'ERR_DIR_NOT_FOUND' })
     const warnings = []
+    const bookFingerprint = mirrorBookFingerprint(root)
     const hasMarker = fs.existsSync(path.join(root, '.pinax', 'project.json'))
     if (!hasMarker) warnings.push('.pinax/project.json 缺失——不是 pinax 项目文件夹，按普通目录读取')
     const manifest = hasMarker ? readJsonIfExists(path.join(root, '.pinax', 'project.json')) : null
@@ -885,7 +901,9 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       nodes: Array.isArray(outlineRaw?.nodes) ? outlineRaw.nodes : [],
       edges: Array.isArray(outlineRaw?.edges) ? outlineRaw.edges : []
     }
-    if (fs.existsSync(path.join(root, '大纲', '大纲.md')) && !outline.nodes.length) warnings.push('大纲/outline.json 缺失——大纲节点为空（仅 大纲.md 概览不可结构化读回）')
+    const outlineComplete = Array.isArray(outlineRaw?.nodes) && Array.isArray(outlineRaw.edges)
+    const incompleteOutline = !outlineComplete && (fs.existsSync(path.join(root, '大纲', 'outline.json')) || fs.existsSync(path.join(root, '大纲', '大纲.md')))
+    if (incompleteOutline) warnings.push('大纲/outline.json 缺失或损坏，不能恢复完整大纲。')
     const explorations = []
     const ideasDir = path.join(root, '构思')
     if (fs.existsSync(ideasDir)) {
@@ -916,7 +934,10 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
       updatedAt: metadata?.book?.updatedAt ?? manifest?.updatedAt ?? null,
       lastSyncAt: entry?.lastSyncAt ?? null
     }
-    return { ok: true, book, warnings, bookFingerprint: mirrorBookFingerprint(root) }
+    const syncManifest = path.join(root, '.pinax', 'sync-manifest.json')
+    const mirrorRevision = fs.existsSync(syncManifest) ? JSON.parse(fs.readFileSync(syncManifest, 'utf8')).revision : 0
+    if (fs.existsSync(root + '.pinax-sync.json') || mirrorBookFingerprint(root) !== bookFingerprint) throw Object.assign(new Error('读取期间书稿发生变化，请重读。'), { code: 'ERR_SYNC_CONFLICT' })
+    return { ok: true, book, warnings, incompleteOutline, mirrorRevision, bookFingerprint }
   }
 
   /** 资料归档读回（W6·C）：读 <root>/资料/归档/*.json（或 root 即 归档 目录），
@@ -990,6 +1011,7 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     const nested = path.join(base, '世界书')
     const wbDir = fs.existsSync(nested) ? nested : base
     const warnings = []
+    const worldbookFingerprint = mirrorDomainFingerprint(wbDir)
     const manifest = readWorldbookManifestSnapshot(wbDir)
     const snapshotByName = new Map((Array.isArray(manifest?.entries) ? manifest.entries : []).map((item) => [String(item?.name ?? ''), item]))
     const auxSkip = new Set(WORLDBOOK_AUX_SKIP)
@@ -1030,7 +1052,8 @@ export function createLocalMirrorService({ rootPath, appDataPath, now = () => ne
     for (const key of ['worldDescription', 'writingStyle', 'forbidden', 'groups']) {
       if (manifest?.[key] !== undefined) worldbook[key] = manifest[key]
     }
-    return { ok: true, worldbook, warnings, worldbookFingerprint: mirrorDomainFingerprint(wbDir) }
+    if (mirrorDomainFingerprint(wbDir) !== worldbookFingerprint) throw Object.assign(new Error('读取期间世界书发生变化，请重读。'), { code: 'ERR_SYNC_CONFLICT' })
+    return { ok: true, worldbook, warnings, worldbookFingerprint }
   }
 
   /** 世界书纯校验（§3.2，C 组预检复用）：files={ relPath: md 文本 } → 逐文件 { relPath, ok, error? }，不落盘。 */

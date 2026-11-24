@@ -4,7 +4,7 @@
 
 ## 数据边界
 
-`server/services/projectCatalogDb.js` 使用 Node 22.13+ 内置 `node:sqlite`，不依赖 `better-sqlite3` 的原生 ABI。`server/services/projectCatalogService.js` 在 Worker 中调用它，文件扫描与 `DatabaseSync` 不占 Express/MCP 主线程；每个请求持有并关闭自己的连接。
+`server/services/projectCatalogDb.js` 使用 Node 22.13+ 内置 `node:sqlite`，不依赖 `better-sqlite3` 的原生 ABI。`server/services/projectCatalogService.js` 在 Worker 中调用它，文件扫描与 `DatabaseSync` 不占 Express/MCP 主线程；每个请求持有并关闭自己的连接。空闲时可复用一个 Worker；并发取消只结束对应的工作线程。
 
 目录只写显式指定项目的 `.pinax/project.sqlite` 中的 `catalog_*` 表。不重写正文、世界书、大纲或项目标记，不读取浏览器 localStorage，也不迁移用户作品。Electron 的 `project_items`、`file_transactions`、`schema_migrations` 保留，目录使用自己的 `catalog_meta.schema_version`。
 
@@ -22,7 +22,7 @@
 | `资料/归档/*.json` | `source-document` | docId，索引 chunk 原文并保留 meta |
 | `约束/`、`规则/`、`文风/` 文本 | `rule` | 各自相对路径，不自动合并旧新规则目录 |
 
-`meta.json`作为文档身份依赖参与新鲜度检查，不生成独立内容条目；身份或标题变化会重算相关正文/构思投影。其余 JSON、二进制附件不收录。大纲概览文本可检索，不据此生成节点。无显式 ID 的文本改名时按删除旧路径、加入新路径处理。重复世界书 ID、不合法大纲/归档、缺失边端点、自环、重复有向同 kind 边会拒绝同步并回滚目录事务，保留旧目录，不自动修原文件。
+`meta.json`作为文档身份依赖参与新鲜度检查，不生成独立内容条目；记录按文件的绑定指纹，只重算绑定变化的正文或构思。旧的一级文件名绑定只匹配直接子文件，嵌套文件按各自相对路径区分。其余 JSON、二进制附件不收录。大纲概览文本可检索，不据此生成节点。无显式 ID 的文本改名时按删除旧路径、加入新路径处理。重复世界书 ID、不合法大纲/归档、缺失边端点、自环、重复有向同 kind 边会拒绝同步并回滚目录事务，保留旧目录，不自动修原文件。
 
 ## 应用入口
 
@@ -32,7 +32,7 @@ MCP 新增 `pinax_project_catalog`（服务版本 0.6.0，共20个工具）：
 {"projectPath":"/absolute/project/path","action":"status"}
 {"projectPath":"/absolute/project/path","action":"sync"}
 {"projectPath":"/absolute/project/path","action":"search","query":"城门"}
-{"projectPath":"/absolute/project/path","action":"list","kind":"worldbook-entry"}
+{"projectPath":"/absolute/project/path","action":"list","kind":"worldbook-entry","view":"summary"}
 {"projectPath":"/absolute/project/path","action":"read","kind":"worldbook-entry","id":"从检索结果取得的ID","expectedRevision":"从检索结果取得的revision"}
 ```
 
@@ -40,17 +40,25 @@ MCP 新增 `pinax_project_catalog`（服务版本 0.6.0，共20个工具）：
 
 本地 HTTP 使用同一操作合同：`POST /api/localmirror/catalog`，body 为上面的对象。它复用项目路由的公网禁用规则；请求断开会取消对应 Worker，不影响其他项目的任务。取消不承诺撤销已经提交的派生同步，下一次 status 可核对结果。
 
+目录树可传 `view: "summary"` 只取身份、标题、路径和修订；详情用 `read` 读取。省略 `view` 时保留完整条目。
+
 返回中包含 `initialized`、`stale`、目录 `revision`。查询命中附原文件路径、源文件哈希与文件投影修订。未建立返回 `CATALOG_NOT_INITIALIZED`；文件变化返回 `CATALOG_STALE`；`expectedRevision` 不符返回 `CATALOG_REVISION_MISMATCH`。HTTP 对这些状态返回409，不伪装成零命中。status 本身可报告未建立状态，不创建数据库。
 
 读取前后都会检查文件新鲜度和目录版本。来源过期必须显式 sync 后重查，不自动更新，也不返回未标记的旧原文。文件仍可能在最后一次检查之后被外部编辑器修改，写入原件时仍须走正式保存的版本检查。
 
 ## 同步与字面检索
 
-首次 sync 初始化派生表。重复同步枚举路径和 stat，按 dev/inode/size/mtimeNs/ctimeNs 指纹跳过未变文件的读取与解析。变化文件计算 SHA-256，内容未变仅刷新指纹；内容变更、删除与 FTS 更新在一个 SQLite 事务提交。`verifyContent:true` 强制重读哈希，但不重新解析内容未变的文件。符号链接、未完成镜像事务、项目身份变化和同步期间的来源变化均拒绝，不替作者恢复镜像。
+首次 sync 初始化派生表。同步按 dev/inode/size/mtimeNs/ctimeNs 指纹核对文件，提交前再次枚举来源。当前版本的目录在全部指纹一致时直接返回已有修订，跳过 `meta.json` 的读取与解析。显式设置 `verifyContent:true` 会逐文件重算哈希。两种模式在来源及索引均无变化时均不写 SQLite 页面。`indexedAt` 记录最近一次内容投影更新的时间。变化文件、删除与 FTS 索引在一个事务内提交。符号链接、未完成镜像事务、项目身份变化和同步期间的来源变化仍会中止操作。
+
+Worker 在内存中保留最近解析的章节和构思绑定。连续在文件夹里修改单章时，只有项目身份、`meta.json` 文件指纹和目录已登记的内容摘要全部一致，才可复用绑定。冷启动会重新读取需要的元数据。切换项目会释放上一项目的绑定。修改绑定文件会重新核对完整内容。
+
+修改大纲的标题、意图或已有边时，目录按原文件顺序核对每个节点与边，仅更新发生变化的投影及其检索索引。边交换端点时，在同一事务内先释放变化边占用的关系，再校验新端点和唯一性。新增、移除或排序改变时按新文件重建大纲项，列表沿用文件内的顺序。校验失败会一起回滚大纲内容、目录版本和索引。
 
 沿用既有容量：2000个支持文件、单文件16MB、合计64MB、深度12；没有新增模型输出或任务时限。并发同步由 SQLite 写锁串行化；读取期间目录版本变化会要求重查。
 
-三个及以上 Unicode 字符用 FTS5 trigram；一/两个字符用 `instr` 子串查询并返回 `mode:'substring'`。查询为参数绑定的字面短语，不把作者输入当 FTS 运算表达式。search 最多100条，list 每页最多1000条。没有做性能基准，不承诺固定毫秒延迟。
+三个及以上 Unicode 码点的普通短语使用 FTS5 trigram。单字和双字使用单独的 FTS5 倒排索引，仅记录每个字或相邻字对出现在哪些条目中。标题、正文、标签分别取词，沿用 ASCII 字母大小写折叠规则，支持汉字、标点及补充平面的字符。短词仍返回 `mode:'substring'`，结果按来源路径和条目顺序排序。含 NUL 的长短语走原文字面匹配。search 最多 100 条，list 每页最多 1000 条。
+
+旧目录可直接查询，下一次显式 sync 从现有 SQLite 投影补齐短词索引。旧客户端后来修改的条目会进入待索引表，在下次 sync 前也能搜索。单条目的不同字及字对超过 32,768 个时走逐条原文匹配，控制词表构建的内存和磁盘开销。索引存储方式见 [SQLite FTS5 contentless-delete](https://www.sqlite.org/fts5.html#contentless_delete_tables)。
 
 离线工具继续可用：
 

@@ -1,11 +1,11 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { isNavigationFailure } from 'vue-router'
-import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
+import { loadWritingBooksSnapshot, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { useWorkspaceTabsStore } from '../stores/workspaceTabsStore.js'
 export function useWorkspaceProjectActions({ route, router, host, onError }) {
   const tabs = useWorkspaceTabsStore()
-  const books = ref(loadWritingBooks())
-  const unsubscribe = subscribeWritingBooks(() => { books.value = loadWritingBooks() })
+  const books = ref(loadWritingBooksSnapshot())
+  const unsubscribe = subscribeWritingBooks(() => { books.value = loadWritingBooksSnapshot() })
   onBeforeUnmount(unsubscribe)
   const book = computed(() => books.value.find(item => String(item.id) === String(route.query.bookId || '')))
   const modules = [

@@ -1,6 +1,6 @@
 <script setup>
 import { tr } from '../../i18n/index.js'
-import { computed, watch, onScopeDispose } from 'vue'
+import { computed, onMounted, watch, onScopeDispose } from 'vue'
 import { useComposableWorkspace } from '../../composables/useComposableWorkspace.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
@@ -17,6 +17,21 @@ onScopeDispose(() => { if (workspace) workspace.railDocked.value = false })
 function emitBeforeSelect(toolId, event) {
   if (event?.button != null && event.button !== 0) return
   emit('before-select', toolId)
+}
+function consumeSelection() {
+  const request = workspace?.pendingRailSelection.value
+  if (!request || docked.value || !workspace.state.hidden) return
+  workspace.pendingRailSelection.value = null
+  if (request.bookId === workspace.scope.value.bookId) emit('select', request.toolId, true)
+}
+onMounted(consumeSelection)
+watch(() => [docked.value, workspace?.pendingRailSelection.value], consumeSelection, { flush: 'post' })
+function selectTool(toolId) {
+  if (docked.value && toolId !== 'history') {
+    if (workspace.hide()) workspace.pendingRailSelection.value = { bookId: workspace.scope.value.bookId, toolId }
+    return
+  }
+  emit('select', toolId)
 }
 // 分组保持原顺序；名称由浮层与可访问名称提供。
 const assistantTool = { id: 'ai', label: '助手' }
@@ -41,7 +56,7 @@ const tools = computed(() => props.collaborationVisible
   <nav class="writing-tool-rail" :aria-label="tr('写作工具')">
     <button v-for="(tool, index) in tools" :key="tool.id" type="button" :data-authoring-tool="tool.id" :data-group-start="index > 0 && tools[index - 1].group !== tool.group ? 'true' : undefined"
       :aria-label="tr(tool.label)" :data-selected="(tool.id === 'dual' ? dual : activeTool === tool.id)" :aria-pressed="!docked && (tool.id === 'dual' ? dual : activeTool === tool.id)" v-workbench-tooltip="pending[tool.id] ? tr('{label} · {count} 处待审修改', { label: tr(tool.label), count: pending[tool.id] }) : tr(tool.label)"
-      @pointerdown="emitBeforeSelect(tool.id, $event)" @click="$emit('select', tool.id)">
+      @pointerdown="emitBeforeSelect(tool.id, $event)" @click="selectTool(tool.id)">
       <WorkbenchIcon :name="tool.icon" :size="19" />
       <span v-if="pending[tool.id]" class="writing-tool-rail__pending" aria-hidden="true" />
     </button>

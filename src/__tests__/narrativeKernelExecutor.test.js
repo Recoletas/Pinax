@@ -2693,7 +2693,7 @@ describe('Phase 10 atomic Ghost adoption gate', () => {
         presentCharacters: [{ id: 'lina', name: '莉娜' }],
         location: { id: 'dock', name: '旧港码头' },
         viewpointCharacter: { id: 'lina', name: '莉娜' },
-        time: { label: '深夜', period: '夜间' }
+        time: { label: '深夜', period: '夜间', storyAt: -2 }
       },
       sceneIntents: [
         {
@@ -2742,7 +2742,7 @@ describe('Phase 10 atomic Ghost adoption gate', () => {
         },
         {
           unitId: 'unit-new-a', worldbookId: 'wb-1', presentCharacterIds: ['lina', 'edgar'],
-          locationId: 'tower', viewpointCharacterId: 'lina', time: { label: '深夜', period: '夜间' }
+          locationId: 'tower', viewpointCharacterId: 'lina', time: { label: '深夜', period: '夜间', storyAt: -2 }
         }
       ],
       outlineNodes: [{ id: 'outline-entry', status: 'fulfilled', revision: 3, unitRefs: [

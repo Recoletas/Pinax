@@ -28,12 +28,13 @@ import {
 import {
   clearWritingRecoveryDraft,
   listWritingRecoveryDrafts,
-  saveWritingRecoveryDraft
+  createEditorRecoverySession
 } from '../services/writing/writingRecovery.js'
 import { normalizeWritingAnnotations } from '../services/writing/writingAnnotations.js'
 import { buildWritingBlockHistoryEntries } from '../../shared/writingBlockHistoryContract.js'
 
 export function useAuthoringHistoryWorkflow(host) {
+  const editorRecovery = createEditorRecoverySession(host.bookId)
   const snapshots = ref([])
   const blockHistory = ref([])
   const recoveryDraft = ref(null)
@@ -82,18 +83,19 @@ export function useAuthoringHistoryWorkflow(host) {
   function load(chapterId = host.chapterId()) {
     snapshots.value = chapterId ? listWritingSnapshots(chapterId) : []
     blockHistory.value = chapterId ? listWritingBlockHistory(chapterId) : []
-    const draft = chapterId ? listWritingRecoveryDrafts(chapterId)[0] : null
-    if (draft) {
+    recoveryDraft.value = null
+    for (const draft of chapterId ? listWritingRecoveryDrafts(chapterId, host.bookId?.()) : []) {
       const guard = getWritingSnapshotRestoreGuard(draft, {
         chapterId,
         documentRevision: host.document()?.revision || 0,
         markdown: host.markdown()
       })
-      if (!guard) {
-        clearWritingRecoveryDraft(chapterId)
-        recoveryDraft.value = null
-      } else recoveryDraft.value = draft
-    } else recoveryDraft.value = null
+      if (guard) {
+        recoveryDraft.value = draft
+        break
+      }
+      editorRecovery.discard(draft)
+    }
     status.value = ''
   }
 
@@ -188,8 +190,9 @@ export function useAuthoringHistoryWorkflow(host) {
   }
 
   function restoreRecovery() {
-    if (!recoveryDraft.value || !restore(recoveryDraft.value)) return false
-    clearWritingRecoveryDraft(host.chapterId())
+    const draft = recoveryDraft.value
+    if (!draft || !restore(draft)) return false
+    editorRecovery.discard(draft)
     recoveryDraft.value = null
     status.value = '已恢复未保存草稿，并保留恢复前检查点。'
     return true
@@ -197,7 +200,7 @@ export function useAuthoringHistoryWorkflow(host) {
 
   function discardRecovery() {
     if (!host.chapterId()) return false
-    clearWritingRecoveryDraft(host.chapterId())
+    editorRecovery.discard(recoveryDraft.value)
     recoveryDraft.value = null
     status.value = '已丢弃未保存草稿，当前正文未改变。'
     return true
@@ -277,14 +280,14 @@ export function useAuthoringHistoryWorkflow(host) {
   }
 
   function readRecovery(key) {
-    const drafts = key ? listWritingRecoveryDrafts(key) : []
-    return drafts.length ? drafts[drafts.length - 1] : null
+    const drafts = key ? listWritingRecoveryDrafts(key, host.bookId?.()) : []
+    return drafts[0] || null
   }
 
   function writeRecovery(payload = {}) {
     const draft = createWritingSnapshot({ ...payload, label: '未保存草稿', reason: 'crash-recovery' })
     if (!draft) return null
-    const result = saveWritingRecoveryDraft(draft)
+    const result = editorRecovery.save(draft)
     if (!result.ok) return null
     // 本次会话的防崩溃写入不是“发现旧恢复稿”。保持入口安静；只有 load()
     // 在打开文稿时读到与已保存正文不同的旧副本，才设置 recoveryDraft。
@@ -292,7 +295,7 @@ export function useAuthoringHistoryWorkflow(host) {
   }
 
   function clearRecovery(key) {
-    const result = clearWritingRecoveryDraft(key)
+    const result = editorRecovery.clear(key)
     if (String(key || '') === String(host.chapterId() || '')) recoveryDraft.value = null
     return result
   }
@@ -300,7 +303,7 @@ export function useAuthoringHistoryWorkflow(host) {
   function removeChapter(chapterId) {
     deleteWritingSnapshotsForChapter(chapterId)
     deleteWritingBlockHistoryForChapter(chapterId)
-    clearWritingRecoveryDraft(chapterId)
+    clearWritingRecoveryDraft(chapterId, host.bookId?.())
     if (String(chapterId || '') === String(host.chapterId() || '')) {
       snapshots.value = []
       blockHistory.value = []

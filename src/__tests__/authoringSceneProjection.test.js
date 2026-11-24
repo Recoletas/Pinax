@@ -367,6 +367,13 @@ const projection = buildAuthoringSceneProjection(v2Input())
     })
     expect(projection.presentCharacters.map((item) => item.id)).toEqual(['char-lina'])
     expect(projection.time).toMatchObject({ label: '入夜后', period: '夜晚' })
+    const ordinalOnly = { ...ANCHOR_UNIT_B, time: { storyAt: 0 } }
+    const inherited = buildAuthoringSceneProjection(v2Input({ activeUnitId: 'unit-c', sceneAnchors: [ordinalOnly] }))
+    expect(inherited.time).toMatchObject({ storyAt: 0, label: '' })
+    const staleScene = buildAuthoringSceneProjection(v2Input({ activeUnitId: 'unit-c',
+      sceneAnchors: [ordinalOnly, { ...ordinalOnly, unitId: 'unit-c', status: 'stale' }] }))
+    expect(staleScene.time).toBeNull()
+    expect(staleScene.viewpointCharacter).toBeNull()
     expect(projection.activeRelations[0]).toMatchObject({
       subjectId: 'char-lina',
       objectId: 'char-edgar'
@@ -769,6 +776,14 @@ describe('scene anchor revision guard', () => {
       liveDocumentRevision: 'writing-k2n-2f-9'
     })
     expect(result.ok).toBe(true)
+    const savePoint = storyAt => upsertSceneAnchor({ anchors: result.anchors,
+      anchor: { ...ANCHOR_UNIT_B, time: { label: '庆历三年', storyAt } },
+      expectedDocumentRevision: 'same', liveDocumentRevision: 'same' })
+    expect(savePoint('0').anchors[0].time.storyAt).toBe(0)
+    expect(savePoint('-2').anchors[0].time.storyAt).toBe(-2)
+    expect(savePoint('').anchors[0].time).not.toHaveProperty('storyAt')
+    expect(savePoint('1.25')).toMatchObject({ ok: false, reason: 'invalid-story-time', anchors: result.anchors })
+
   })
 
   it('removes only the active explicit anchor so the resolver can inherit again', () => {

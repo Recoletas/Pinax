@@ -1,6 +1,7 @@
 // 本地项目设置与绑定面（轻模块）：设置字段、注册表查询、自动建项目绑定。
 // 只依赖 useStorage + fetch，可在 node smoke 中独立加载；payload 组装在 localMirrorService.js（浏览器域）。
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage.js'
+import { getMirrorEpoch } from './storage/mirrorReceiptEpoch.js'
 
 const SETTINGS_KEY = STORAGE_KEYS.LOCAL_MIRROR_SETTINGS
 
@@ -22,6 +23,25 @@ export function setLocalMirrorSettings(patch) {
   const next = { ...getLocalMirrorSettings(), ...(patch && typeof patch === 'object' ? patch : {}) }
   setItem(SETTINGS_KEY, normalizeSettings(next))
   return next
+}
+
+export function getMirrorReceipt(projectId, bookId) {
+  const epoch = getMirrorEpoch(bookId)
+  const stored = getItem(STORAGE_KEYS.LOCAL_MIRROR_RECEIPTS)?.[JSON.stringify([projectId, bookId])]
+  return stored && (stored.epoch || '') === epoch ? { ...stored, epoch } : { revision: 0, epoch }
+}
+export function updateMirrorReceipt(projectId, bookId, patch, expectedEpoch = getMirrorEpoch(bookId)) {
+  const key = JSON.stringify([projectId, bookId])
+  const receipts = getItem(STORAGE_KEYS.LOCAL_MIRROR_RECEIPTS) || {}
+  if (getMirrorEpoch(bookId) !== expectedEpoch) return
+  const stored = receipts[key]
+  const current = stored && (stored.epoch || '') === expectedEpoch ? stored : { revision: 0 }
+  // A delayed acknowledgement must not roll the baseline back past a later
+  // commit or clear the fingerprint of a newer explicit restore.
+  if (Number.isSafeInteger(patch.revision) && patch.revision < Math.max(current.revision || 0, current.bookRevision || 0)) return
+  const receipt = { ...current, ...patch, epoch: expectedEpoch }
+  setItem(STORAGE_KEYS.LOCAL_MIRROR_RECEIPTS, { ...receipts, [key]: receipt })
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('pinax-mirror-receipt'))
 }
 
 export async function getLocalMirrorLocation() {

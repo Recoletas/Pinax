@@ -2,14 +2,15 @@
 // - 设置/绑定面（设置字段、注册表、自动建项目）在 localMirrorSettings.js（轻模块，node 可加载）。
 // - 自动同步挂 writing_books 订阅（保存链唯一边界），2.5s 去抖；失败静默退避 60s，不打断写作。
 import { getItem, STORAGE_KEYS } from '../composables/useStorage.js'
-import { getLocalMirrorSettings, listLocalProjects } from './localMirrorSettings.js'
+import { getLocalMirrorSettings, listLocalProjects, getMirrorReceipt, updateMirrorReceipt } from './localMirrorSettings.js'
+import { getMirrorEpoch } from './storage/mirrorReceiptEpoch.js'
 import { loadWritingBooks, subscribeWritingBooks } from './writing/writingBooksRepository.js'
 import { readWorldbookSnapshot } from '../stores/worldStore.js'
-import { listWritingSnapshots } from './writing/writingSnapshots.js'
-import { listWritingBlockHistory } from './writing/writingBlockHistory.js'
+import { listAllWritingSnapshots } from './writing/writingSnapshots.js'
+import { listAllWritingBlockHistory } from './writing/writingBlockHistory.js'
 import { listMemoryCandidates } from './memory/memoryCandidates.js'
 import { listMediaAssets } from './media/mediaAssetStore.js'
-import { loadAllSourceArchiveRecords } from './worldbook/worldbookSourceArchive.js'
+import { readReferencedSourceArtifacts } from './worldbook/worldbookSourceArchive.js'
 
 const DEBOUNCE_MS = 2500
 const FAILURE_BACKOFF_MS = 60_000
@@ -29,11 +30,24 @@ const CAPS = {
 // 设置/绑定面（getLocalMirrorSettings/setLocalMirrorSettings/listLocalProjects/
 // getLocalMirrorLocation）在 localMirrorSettings.js——轻模块单源。
 
-function gatherLogs(book, chapterIds, worldbookId) {
+function groupByChapter(rows) {
+  const groups = new Map()
+  for (const row of rows) {
+    const id = String(row.chapterId)
+    if (!groups.has(id)) groups.set(id, [])
+    groups.get(id).push(row)
+  }
+  return groups
+}
+
+function gatherLogs(book, worldbookId) {
   const logs = { revisions: [], sessions: [], conversations: [], memory: [] }
   try {
-    for (const chapterId of chapterIds) {
-      const snapshots = (listWritingSnapshots(chapterId) || []).slice(-CAPS.snapshotsPerChapter).map((snapshot) => ({
+    const chapterSnapshots = groupByChapter(listAllWritingSnapshots())
+    const chapterHistory = groupByChapter(listAllWritingBlockHistory())
+    for (const chapter of book.chapters || []) {
+      const chapterId = chapter.id
+      const snapshots = (chapterSnapshots.get(String(chapterId)) || []).slice(-CAPS.snapshotsPerChapter).map((snapshot) => ({
         id: snapshot.id,
         label: snapshot.label || '',
         reason: snapshot.reason || '',
@@ -41,9 +55,9 @@ function gatherLogs(book, chapterIds, worldbookId) {
         wordCount: snapshot.wordCount || 0,
         markdown: String(snapshot.markdown ?? '').slice(0, CAPS.revisionMarkdownChars)
       }))
-      const blockHistory = (listWritingBlockHistory(chapterId) || []).slice(-CAPS.blockHistoryPerChapter)
+      const blockHistory = (chapterHistory.get(String(chapterId)) || []).slice(-CAPS.blockHistoryPerChapter)
       if (snapshots.length || blockHistory.length) {
-        logs.revisions.push({ chapterId, chapterTitle: book.chapters?.find((chapter) => chapter.id === chapterId)?.title || '', snapshots, blockHistory })
+        logs.revisions.push({ chapterId, chapterTitle: chapter.title || '', snapshots, blockHistory })
       }
     }
   } catch { return null }
@@ -83,49 +97,57 @@ function gatherLogs(book, chapterIds, worldbookId) {
   return logs
 }
 
-async function gatherMaterials(worldbook) {
-  if (!worldbook) return { artifacts: [] }
-  try {
-    const wanted = []
-    for (const document of Array.isArray(worldbook.sourceDocuments) ? worldbook.sourceDocuments : []) {
-      const content = String(document.content || document.contentPreview || document.preview || '')
-      wanted.push({ ref: document.id || '', title: document.title || '', kind: document.kind || 'reference-text', content: content.slice(0, CAPS.artifactChars) })
-    }
-    const referencedIds = new Set((worldbook.sourceDocuments || []).flatMap(document => [document.id, document.archiveRef].filter(Boolean).map(String)))
-    const archive = await loadAllSourceArchiveRecords()
-    const artifactById = new Map((archive.artifacts || []).map((artifact) => [String(artifact.id), artifact]))
-    const chunkById = new Map((archive.chunks || []).map((chunk) => [String(chunk.id), chunk]))
-    for (const document of Array.isArray(worldbook.sourceDocuments) ? worldbook.sourceDocuments : []) {
-      if (wanted.some((item) => item.ref === document.id && item.content)) continue
-      const candidates = [document.archiveRef, document.id].map(String)
-      const artifact = candidates.map((id) => artifactById.get(id)).find(Boolean)
-      if (!artifact) continue
-      const content = (Array.isArray(artifact.chunkIds) ? artifact.chunkIds : [])
-        .map((chunkId) => chunkById.get(String(chunkId))?.text || '')
-        .join('')
-      if (content.trim()) wanted.push({ ref: String(artifact.id), title: artifact.title || document.title || '', kind: artifact.kind || 'reference-text', content: content.slice(0, CAPS.artifactChars) })
-    }
-    for (const artifact of (archive.artifacts || []).slice(0, CAPS.artifacts)) {
-      if (wanted.length >= CAPS.artifacts) break
-      if (wanted.some((item) => item.ref === String(artifact.id))) continue
-      if (!referencedIds.has(String(artifact.id))) continue
-      const content = (Array.isArray(artifact.chunkIds) ? artifact.chunkIds : []).map((chunkId) => chunkById.get(String(chunkId))?.text || '').join('')
-      if (content.trim()) wanted.push({ ref: String(artifact.id), title: artifact.title || '', kind: artifact.kind || 'reference-text', content: content.slice(0, CAPS.artifactChars) })
-    }
-    return { artifacts: wanted.filter((item) => item.content.trim()).slice(0, CAPS.artifacts) }
-  } catch { return null }
+function archivedPreview(artifact, chunks) {
+  let text = ''
+  for (const id of artifact.chunkIds || []) {
+    text += String(chunks.get(String(id))?.text || '').slice(0, CAPS.artifactChars - text.length)
+    if (text.length >= CAPS.artifactChars) break
+  }
+  return text
 }
 
-async function gatherSourceArchive(worldbook) {
-  if (!worldbook) return null
-  const wanted = new Set((worldbook.sourceDocuments || []).flatMap(document => [document.id, document.archiveRef].filter(Boolean).map(String)))
-  const archive = await loadAllSourceArchiveRecords()
-  const chunks = new Map((archive.chunks || []).map(chunk => [String(chunk.id), chunk]))
-  return Object.fromEntries((archive.artifacts || []).filter(artifact => wanted.has(String(artifact.id))).map(artifact => [String(artifact.id), { meta: artifact, chunks: (artifact.chunkIds || []).map(id => {
-    const chunk = chunks.get(String(id))
+function gatherMaterials(documents, archive) {
+  const artifacts = []
+  const included = new Set()
+  function include(ref, title, kind, content) {
+    if (!content.trim()) return
+    artifacts.push({ ref, title, kind: kind || 'reference-text', content })
+    included.add(ref)
+  }
+
+  for (const document of documents) {
+    const text = String(document.content || document.contentPreview || document.preview || '')
+    include(document.id || '', document.title || '', document.kind, text.slice(0, CAPS.artifactChars))
+    if (artifacts.length === CAPS.artifacts) return { artifacts }
+  }
+
+  const byId = new Map(archive.artifacts.map(artifact => [String(artifact.id), artifact]))
+  function includeArchive(artifact, title = '') {
+    if (!artifact || included.has(String(artifact.id))) return
+    include(String(artifact.id), artifact.title || title, artifact.kind, archivedPreview(artifact, archive.chunks))
+  }
+  for (const document of documents) {
+    if (included.has(document.id)) continue
+    includeArchive(byId.get(String(document.archiveRef)) || byId.get(String(document.id)), document.title)
+    if (artifacts.length === CAPS.artifacts) return { artifacts }
+  }
+  for (const artifact of archive.artifacts) {
+    includeArchive(artifact)
+    if (artifacts.length === CAPS.artifacts) break
+  }
+  return { artifacts }
+}
+
+function gatherSourceArchive(archive, documents) {
+  const records = Object.fromEntries(archive.artifacts.map(artifact => [String(artifact.id), { meta: artifact, chunks: (artifact.chunkIds || []).map(id => {
+    const chunk = archive.chunks.get(String(id))
     if (!chunk) throw new Error('资料原文片段缺失，未执行文件同步。')
     return chunk
   }) }]))
+  for (const doc of documents) {
+    if (doc.archiveRef && !Object.hasOwn(records, doc.archiveRef)) throw new Error('引用的资料归档缺失，未执行文件同步。')
+  }
+  return records
 }
 
 export async function buildBookMirrorPayload(book) {
@@ -148,9 +170,12 @@ export async function buildBookMirrorPayload(book) {
       }
     }
   } catch { /* 世界书不可读时镜像正文/大纲即可 */ }
-  const logs = gatherLogs(book, (book.chapters || []).map(chapter => chapter.id), book.worldbookId)
-  const materials = await gatherMaterials(worldbook)
-  const sourceArchive = await gatherSourceArchive(worldbook)
+  const logs = gatherLogs(book, book.worldbookId)
+  const documents = worldbook?.sourceDocuments || []
+  const referencedIds = documents.flatMap(doc => [doc.id, doc.archiveRef].filter(Boolean))
+  const archive = await readReferencedSourceArtifacts(referencedIds)
+  const materials = gatherMaterials(documents, archive)
+  const sourceArchive = worldbook ? gatherSourceArchive(archive, worldbook.sourceDocuments) : null
   return {
     book: {
       ...book,
@@ -174,7 +199,7 @@ export async function buildBookMirrorPayload(book) {
     },
     ...(worldbook ? { worldbook } : {}),
     ...(logs ? { logs } : {}),
-    ...(materials ? { materials } : {}),
+    materials,
     ...(sourceArchive ? { sourceArchive } : {}),
     media: (() => {
       try {
@@ -188,24 +213,47 @@ export async function buildBookMirrorPayload(book) {
   }
 }
 
-export async function syncBookLocalMirror(book) {
-  const payload = await buildBookMirrorPayload(book)
-  if (!payload) return { ok: false, reason: 'invalid-book' }
-  const stateResponse = await fetch(`/api/localmirror/sync-state?bookId=${encodeURIComponent(book.id)}`)
-  const state = await stateResponse.json()
-  if (!stateResponse.ok || !state.ok) throw new Error('项目同步状态无法读取，尚未写入。')
-  payload.baseRevision = state.revision
-  payload.requestId = `mirror_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const response = await fetch('/api/localmirror/sync', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  })
-  const body = await response.json().catch(() => null)
-  if (!response.ok || body?.ok !== true) {
-    throw Object.assign(new Error(body?.message || 'local mirror sync failed'), { status: response.status })
+export async function syncBookLocalMirror(bookId, { binding, extras } = {}) {
+  const id = String(bookId?.id ?? bookId ?? '')
+  const project = binding || (await listLocalProjects()).find(entry => String(entry.bookId) === id)
+  if (!project || String(project.bookId) !== id) throw new Error('请先为作品绑定本地项目目录')
+  const { revision, bookRevision, bookFingerprint, epoch } = getMirrorReceipt(project.projectId, id)
+  function checkEpoch() {
+    if (getMirrorEpoch(id) !== epoch) throw new Error('书架已从备份恢复，请重新同步。')
   }
-  return body
+  try {
+    // Read the canonical book AFTER its acknowledged file revision. A queued
+    // caller cannot pair an old page snapshot with another tab's newer receipt.
+    if (epoch.startsWith('pending:') && !revision && !bookFingerprint) throw new Error('书架恢复尚未完成，请重新恢复备份或从项目文件读回作品。')
+    const book = loadWritingBooks().find(record => String(record.id) === id)
+    if (!book) throw new Error('当前作品已不存在，已停止同步')
+    const payload = await buildBookMirrorPayload(book)
+    if (!payload) throw new Error('无效作品')
+    if (extras) Object.assign(payload, await extras())
+    checkEpoch()
+    payload.baseRevision = revision
+    if (Number.isSafeInteger(bookRevision)) payload.bookBaseRevision = bookRevision
+    if (bookFingerprint) payload.expectedBookFingerprint = bookFingerprint
+    payload.expectedProjectId = project.projectId
+    payload.source = 'browser-mirror'
+    payload.requestId = `mirror_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    const response = await fetch('/api/localmirror/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+    const body = await response.json().catch(() => null)
+    if (!response.ok || body?.ok !== true) {
+      throw Object.assign(new Error(body?.message || 'local mirror sync failed'), { status: response.status })
+    }
+    if (!Number.isSafeInteger(body.revision)) throw new Error('项目服务未返回已写入的修订号，请更新本机服务后核对项目。')
+    checkEpoch()
+    updateMirrorReceipt(project.projectId, id, { revision: body.revision, bookRevision: null, bookFingerprint: null, message: null }, epoch)
+    return body
+  } catch (error) {
+    updateMirrorReceipt(project.projectId, id, { message: error.message }, epoch)
+    throw error
+  }
 }
 
 let syncTimer = null
@@ -215,12 +263,17 @@ let installed = false
 async function syncAllBooks() {
   if (backoffUntil > Date.now()) return
   try {
-    const books = loadWritingBooks()
     const bindings = await listLocalProjects()
-    const boundBooks = new Set(bindings.filter(project => project.bookId).map(project => String(project.bookId)))
+    const books = loadWritingBooks()
+    const byBook = new Map(bindings.filter(project => project.bookId).map(project => [String(project.bookId), project]))
     const index = []
-    for (const book of books.filter(book => boundBooks.has(String(book.id)))) {
-      const result = await syncBookLocalMirror(book)
+    let allSynced = true
+    for (const book of books.filter(book => byBook.has(String(book.id)))) {
+      let result
+      try {
+        result = await syncBookLocalMirror(book.id, { binding: byBook.get(String(book.id)) })
+      }
+      catch { allSynced = false; continue }
       index.push({
         id: book.id,
         title: book.title || book.name || book.id,
@@ -231,7 +284,7 @@ async function syncAllBooks() {
         dir: result?.dir ?? null
       })
     }
-    if (index.length) {
+    if (index.length && allSynced) {
       await fetch('/api/localmirror/index', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

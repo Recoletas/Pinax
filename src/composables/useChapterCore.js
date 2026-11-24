@@ -3,27 +3,27 @@ import { createBrowserChapterStore } from '../services/writing/chapterCoreStore.
 
 /**
  * Web 的章节 Core 接入点：把页面级 books/chapters 作为 Store 的工作集，
- * 保存仍走既有 saveBooks（它会合并 fresh 探索/大纲并写 localStorage）。
+ * 保存时按章节提交给 saveBooks，由它对照持久层修订与原始快照。
  * 业务创建/修订/错误语义在独立 @pinax/core 包，不在页面里复制。
  *
  * 当前浏览器工作集读写均同步，因此这里只载入同步 Service；与异步版
  * 共用同一套校验/domain 的 createSyncChapterService。
  */
 export function useChapterCore({ books, chapters, saveBooks }) {
-  function store() {
+  function store(chapterChange) {
     return createBrowserChapterStore({
       loadBooks: () => books.value,
       saveBooks: (nextBooks) => {
         books.value = nextBooks
-        return saveBooks()
+        return saveBooks({ chapterChange })
           ? { ok: true, value: { books: nextBooks } }
           : { ok: false, error: { code: 'IO_FAILED', message: '章节保存失败' } }
       }
     })
   }
 
-  function syncService() {
-    return createSyncChapterService({ store: store(), idFactory: () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` })
+  function syncService(chapterChange) {
+    return createSyncChapterService({ store: store(chapterChange) })
   }
 
   function listChapters(bookId) {
@@ -40,7 +40,9 @@ export function useChapterCore({ books, chapters, saveBooks }) {
     if (!book) return { ok: false, error: { code: 'BOOK_NOT_FOUND', message: '作品不存在' } }
     const before = chapters.value.slice()
     book.chapters = chapters.value
-    const created = await syncService().create(bookId, {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const created = await syncService({ bookId, chapterId: id, method: 'create' }).create(bookId, {
+      id,
       title: '',
       content: '',
       extra: { contentFormat: 'md', outlineItems: [], wordCount: 0 }
@@ -67,7 +69,7 @@ export function useChapterCore({ books, chapters, saveBooks }) {
       return saveBooks({ preserveOutlineBookId: bookId })
     }
     if (chapterRevision(chapter) !== expectedRevision) return false
-    return syncService().save(bookId, chapter.id, {
+    return syncService({ bookId, chapterId: chapter.id, method: 'update', expectedRevision }).save(bookId, chapter.id, {
       title: chapter.title,
       content: chapter.content,
       editorDocument: chapter.editorDocument,
@@ -77,7 +79,7 @@ export function useChapterCore({ books, chapters, saveBooks }) {
 
   function removeChapter({ bookId, chapterId, expectedRevision } = {}) {
     if (!bookId || !chapterId) return false
-    return syncService().remove(bookId, chapterId, { expectedRevision }).ok
+    return syncService({ bookId, chapterId, method: 'remove', expectedRevision }).remove(bookId, chapterId, { expectedRevision }).ok
   }
 
   return Object.freeze({ listChapters, readChapter, createChapter, saveChapter, removeChapter, revisionOf: chapterRevision })

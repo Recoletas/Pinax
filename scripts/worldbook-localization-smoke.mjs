@@ -19,14 +19,16 @@ import path from 'node:path'
 import {
   LOCALIZATION_CATEGORIES,
   annihilateBrowserCache,
-  buildArchivePushPayload,
   buildRestorePlan,
   buildSessionsPushPayload,
   collectBrowserState,
   extractUpdatedAt,
   matchLocalizationKey,
+  readReviewedShelfForRestore,
   summarizeKeyPlan
 } from '../src/services/localization/localizationService.js'
+import { withWritingBooksLock } from '../src/services/storage/writingBooksLock.js'
+import { writeChapterChange } from '../src/services/storage/writingStorageCodec.js'
 import { createLocalMirrorService } from '../server/services/localMirrorService.js'
 
 let passed = 0
@@ -96,7 +98,7 @@ check('未裁定键返回 null（保守保留）', matchLocalizationKey('totally
 section('2. 恢复计划（A3 口径）')
 
 const browserSeed = {
-  writing_books: JSON.stringify([{ id: 'b1', title: '浏览器书', updatedAt: '2026-10-08T01:00:00Z', chapters: [{ id: 'c1', title: '章', content: '旧正文' }] }]),
+  writing_books: JSON.stringify([{ id: 'b1', worldbookId: 'wb1', title: '浏览器书', updatedAt: '2026-10-08T01:00:00Z', chapters: [{ id: 'c1', title: '章', content: '旧正文' }] }]),
   worldbook_wb1: JSON.stringify({ id: 'wb1', updatedAt: '2026-10-08T01:00:00Z', entries: [] }),
   text_model_configs: JSON.stringify([{ provider: 'x', apiKey: 'sk-SENSITIVE' }]),
   workspace_tabs_v1: JSON.stringify([{ id: 'tab1' }]),
@@ -111,7 +113,7 @@ check('extractUpdatedAt 数组取最大项', extractUpdatedAt(browserSeed.writin
 
 // 2a. 文件有 → 拉文件（浏览器也有 → 冲突文件优先）
 const planFileWins = buildRestorePlan(snapshot, {
-  books: { available: true, book: { id: 'b1', title: '文件书', chapters: [{ title: '章', content: '新正文' }], updatedAt: '2026-10-08T02:00:00Z' } },
+  books: { available: true, book: { id: 'b1', worldbookId: 'wb1', title: '文件书', chapters: [{ title: '章', content: '新正文' }], updatedAt: '2026-10-08T02:00:00Z' } },
   worldbook: { available: true, worldbook: { id: 'wb1', entries: [{ id: 'e1', name: '条目' }] } },
   sourceArchive: { available: true, sources: [{ docId: 'doc1', chunks: [{}] }] }
 })
@@ -123,14 +125,15 @@ check('计划汇总：3 个文件域 / 批准清除键数>0', planFileWins.summa
 
 // 2b. 文件无浏览器有 → 保留并提示补推
 const planBrowserOnly = buildRestorePlan(snapshot, {
+  bookId: 'b1',
   books: { available: false, book: null },
   worldbook: { available: false, worldbook: null },
   sourceArchive: { available: false, sources: [] }
 })
 check('文件无→books keep-browser + pushPending', actionOf(planBrowserOnly, 'books')?.type === 'keep-browser' && actionOf(planBrowserOnly, 'books')?.pushPending === true)
 check('文件无→worldbook keep-browser + pushPending', actionOf(planBrowserOnly, 'worldbook')?.pushPending === true)
-check('文件无→source-archive keep-browser + pushPending', actionOf(planBrowserOnly, 'source-archive')?.pushPending === true)
-check('汇总 pushPendingDomains 三域', planBrowserOnly.summary.pushPendingDomains.length === 3)
+check('无文件时保留跨项目归档', actionOf(planBrowserOnly, 'source-archive')?.type === 'keep-browser' && !actionOf(planBrowserOnly, 'source-archive')?.pushPending)
+check('补推只覆盖已知作品和世界书', planBrowserOnly.summary.pushPendingDomains.join(',') === 'books,worldbook')
 
 // 2c. revision 仲裁：浏览器严格更新（有未同步修订）→ 让位浏览器 + 补推
 const planBrowserNewer = buildRestorePlan(snapshot, {
@@ -151,20 +154,73 @@ check('worldbook id 失配→keep-browser 不读入', actionOf(planMismatch, 'wo
 /* ---------- 3. 湮灭只清批准键 ---------- */
 section('3. 湮灭只清批准键')
 
-const result = annihilateBrowserCache(planFileWins)
-let archiveCleared = false
-const resultWithClearner = annihilateBrowserCache(planFileWins, {
-  clearners: { '@idb:pinax-source-archive': () => { archiveCleared = true } }
-})
-check('file-source 键被清除（writing_books/worldbook_*）', result.cleared.includes('writing_books') && result.cleared.includes('worldbook_wb1'))
-check('可丢缓存键被清除（workspace_tabs_v1/authoring_first_run_v1）', result.cleared.includes('workspace_tabs_v1') && result.cleared.includes('authoring_first_run_v1'))
-check('安全敏感键动不了（不在批准集/不清除）', !result.cleared.includes('text_model_configs') && !planFileWins.clearKeys.includes('text_model_configs'))
-check('sab_* 键动不了（浏览器保留）', !result.cleared.includes('sab_mode') && !result.refused.some((item) => item.key === 'sab_mode'))
-check('未知键动不了', !result.cleared.includes('some_unknown_key') && !result.refused.some((item) => item.key === 'some_unknown_key'))
-check('active_worldbook_id 随 worldbook 域清除（派生恢复）', result.cleared.includes('active_worldbook_id') || !browserSeed.active_worldbook_id)
-check('IndexedDB 无 clearner → 显式跳过不静默', result.idbSkipped.some((item) => item.key === '@idb:pinax-source-archive' && item.reason === 'no-clearner'))
-check('IndexedDB 带 clearner → 执行', resultWithClearner.idbCleared.includes('@idb:pinax-source-archive') && archiveCleared)
-check('湮灭后敏感键内容原样', (globalThis.localStorage.getItem('text_model_configs') || '').includes('sk-SENSITIVE'))
+const result = annihilateBrowserCache(planFileWins, { currentPlan: planFileWins })
+check('文件可读仍保留内容不同的书稿和世界书', !result.cleared.includes('writing_books') && !!localStorage.getItem('worldbook_wb1'))
+check('可丢缓存键被清除', result.cleared.includes('workspace_tabs_v1') && result.cleared.includes('authoring_first_run_v1'))
+check('设备偏好、敏感键和未知键保持原样', ['text_model_configs', 'sab_mode', 'some_unknown_key'].every(key => localStorage.getItem(key) === browserSeed[key]))
+check('项目文件永不授权清空共享 IndexedDB', !planFileWins.clearKeys.includes('@idb:pinax-source-archive'))
+const localBook = JSON.parse(browserSeed.writing_books)[0]
+const localWorld = { id: 'wb1', name: '世界', entries: [{ id: 'e1', name: '同一条目' }] }
+const disk = { bookId: 'b1', projectRoot: 'folder-A', books: { available: true, book: localBook }, worldbook: { available: true, worldbook: localWorld } }
+const asPlan = (state = disk) => buildRestorePlan(collectBrowserState(), state)
+localStorage.setItem('worldbook_wb1', JSON.stringify(localWorld))
+localStorage.setItem('worldbook_wb2', JSON.stringify({ id: 'wb2', entries: ['另一部书的私有设定'] }))
+localStorage.setItem('worldbook_create_draft_v1', '待保存草稿')
+localStorage.setItem('active_worldbook_id', 'wb2')
+const approved = asPlan()
+check('完整匹配的单书副本及绑定世界书可清理', approved.clearKeys.sort().join(',') === 'worldbook_wb1,writing_books')
+check('缺少跨页面写锁时仅允许清理临时缓存', !asPlan({ ...disk, canLock: false }).clearKeys.length)
+check('未重新核对文件时保留书稿和世界书', annihilateBrowserCache(approved).refused.length === 2 && !!localStorage.getItem('writing_books'))
+check('目录变更后拒绝清理原计划', annihilateBrowserCache(approved, { currentPlan: asPlan({ ...disk, projectRoot: 'folder-B' }) }).refused.length === 2)
+const missingBook = { ...disk, books: { ...disk.books, warnings: ['未能读取一章'] } }
+check('文件读回不完整时保留书稿和设定', annihilateBrowserCache(approved, { currentPlan: asPlan(missingBook) }).refused.length === 2)
+localStorage.setItem('writing_books', JSON.stringify([{ ...localBook, chapters: [{ id: 'c1', content: '预览后的正文' }] }]))
+localStorage.setItem('worldbook_wb1', JSON.stringify({ ...localWorld, sourceDocuments: [{ id: '私有资料' }] }))
+check('同时间戳下修改正文/设定仍保护', annihilateBrowserCache(approved, { currentPlan: asPlan() }).refused.length === 2
+  && localStorage.getItem('writing_books').includes('预览后的正文') && localStorage.getItem('worldbook_wb1').includes('私有资料'))
+let staleRestore = false
+try { readReviewedShelfForRestore(approved) } catch { staleRestore = true }
+check('恢复旧预览时检测到同一作品并发修改', staleRestore)
+const otherBook = { id: 'b2', updatedAt: '2099-01-01', chapters: [{ content: '其他作品正文' }] }
+localStorage.setItem('writing_books', JSON.stringify([localBook, otherBook]))
+localStorage.setItem('worldbook_wb1', JSON.stringify(localWorld))
+const multi = asPlan()
+check('其他作品的时间不参与本书版本仲裁', actionOf(multi, 'books')?.arbitration === 'file-first')
+const selective = annihilateBrowserCache(multi, { currentPlan: asPlan() })
+check('多本书只清理可完整恢复的对应世界书', selective.cleared.join(',') === 'worldbook_wb1' && JSON.parse(localStorage.getItem('writing_books')).length === 2)
+check('其他作品设定、草稿和当前选择全部保留', !!localStorage.getItem('worldbook_wb2') && localStorage.getItem('worldbook_create_draft_v1') === '待保存草稿' && localStorage.getItem('active_worldbook_id') === 'wb2')
+localStorage.setItem('writing_books', JSON.stringify([localBook]))
+const originalRemove = localStorage.removeItem
+localStorage.removeItem = () => {}
+check('存储拒绝删除时不计为已清理', annihilateBrowserCache(asPlan(), { currentPlan: asPlan() }).refused.length === 1)
+localStorage.removeItem = originalRemove
+const complete = annihilateBrowserCache(asPlan(), { currentPlan: asPlan() })
+check('经确认的完整单书副本可以从书架移除', complete.cleared.join(',') === 'writing_books' && localStorage.getItem('writing_books') === null)
+
+// Exercise the same two-key chapter write used by autosave. Only the overlay
+// changes after preview; matching a baseline alone would delete the new draft.
+const longBook = { ...localBook, chapters: [...localBook.chapters, { id: 'long', content: '正文'.repeat(270000) }] }
+localStorage.setItem('writing_books', JSON.stringify([longBook]))
+Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: (_name, run) => Promise.resolve().then(run) } })
+const chapter1 = longBook.chapters[0]
+const chapter2 = { ...chapter1, content: '增量稿一' }
+const nextTimestamp = '2026-10-10T00:00:00Z'
+const saveDelta = (original, chapter) => withWritingBooksLock(() => writeChapterChange(localStorage, {
+  bookId: longBook.id, original, chapter, updatedAt: nextTimestamp
+}, value => value))
+check('通过真实书架写入入口建立按章增量记录', await saveDelta(chapter1, chapter2))
+const deltaDisk = { ...disk, books: { available: true, book: { ...longBook, updatedAt: nextTimestamp, chapters: [chapter2, longBook.chapters[1]] } } }
+const beforeDeltaChange = asPlan(deltaDisk)
+const baseline = localStorage.getItem('writing_books')
+const chapter3 = { ...chapter2, content: '增量稿二' }
+check('第二次写入只更新增量，物理基线不变', await saveDelta(chapter2, chapter3) && baseline === localStorage.getItem('writing_books'))
+const latestDisk = { ...deltaDisk, books: { available: true, book: { ...deltaDisk.books.book, chapters: [chapter3, longBook.chapters[1]] } } }
+const deltaResult = await withWritingBooksLock(() => annihilateBrowserCache(beforeDeltaChange, { currentPlan: asPlan(latestDisk) }))
+check('即使文件已经追平，确认前新增的增量编辑仍保留', beforeDeltaChange.clearKeys.includes('writing_books') && deltaResult.refused.length === 1 && !!localStorage.getItem('writing_books'))
+const currentDelta = asPlan(latestDisk)
+const deltaCleared = await withWritingBooksLock(() => annihilateBrowserCache(currentDelta, { currentPlan: asPlan(latestDisk) }))
+check('确认后的清理移除已核对的单书基线和活动增量', deltaCleared.cleared.includes('writing_books') && !Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)).some(key => key.startsWith('pinax:writing-changes:')))
+delete navigator.locks
 
 // 损坏计划（把敏感键塞进批准集）也清不掉——第二道守卫
 const hostilePlan = { clearKeys: ['text_model_configs', 'apiSettings', 'unknown_forced_key'] }
@@ -173,14 +229,9 @@ check('损坏计划被守卫拒绝（敏感+未知全 refused）', hostileResult
 
 /* ---------- 补推载荷组装（纯函数） ---------- */
 section('3b. 补推载荷组装')
-const archivePayload = buildArchivePushPayload({
-  artifacts: [{ id: 'doc1', title: '资料一', chunkIds: ['doc1:chunk:1:x'] }, { id: '', title: '无id跳过' }],
-  chunks: [{ id: 'doc1:chunk:1:x', sourceId: 'doc1', text: '块一' }, { id: 'doc1:chunk:2:y', sourceId: 'doc2', text: '别家的' }]
-})
-check('归档载荷按 sourceId 归 chunk + 跳过无 id artifact', archivePayload.doc1?.chunks?.length === 1 && archivePayload.doc1?.meta?.title === '资料一' && !('' in archivePayload))
-const sessionsPayload = buildSessionsPushPayload([{ id: 's1', title: '会话一' }, null, 'junk'])
-check('会话载荷滤非法项', sessionsPayload.length === 1 && sessionsPayload[0].id === 's1')
-
+const sessionsSeed = [{ id: 's1', worldbookId: 'wb1' }, { id: 's2', bookId: 'b2', worldbookId: 'wb1' }, { id: 's3', bookId: 'b1' }, null, 'junk']
+check('按作品和独占世界书归属补推会话', buildSessionsPushPayload(sessionsSeed, localBook, [localBook, otherBook]).map(row => row.id).join(',') === 's1,s3')
+check('共享世界书时只补推显式属于当前作品的会话', buildSessionsPushPayload(sessionsSeed, localBook, [localBook, { ...otherBook, worldbookId: 'wb1' }]).map(row => row.id).join(',') === 's3')
 uninstallFakeLocalStorage()
 
 /* ---------- 4. 书读回 / 归档落盘往返（真实 service + 临时目录） ---------- */

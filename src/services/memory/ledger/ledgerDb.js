@@ -1,4 +1,5 @@
 import Dexie from 'dexie'
+import { materializeLegacyWorldClaims } from '@pinax/core/memory/ledger/worldClaims'
 import { MEMORY_HISTORY_DB } from '@pinax/core/memory/ledgerSchema'
 import { LEDGER_SCHEMA_VERSION } from './ledgerContract'
 
@@ -6,9 +7,10 @@ import { LEDGER_SCHEMA_VERSION } from './ledgerContract'
 // revision history: one browser database, cross-table transactions stay real.
 // v1 `revisions` keeps its exact original declaration; upgrade only adds
 // tables and never rewrites or deletes v1 rows.
-import { LEDGER_V1_TABLES, LEDGER_V2_TABLES, LEDGER_V3_TABLES, LEDGER_V4_TABLES, LEDGER_TX_TABLES } from '@pinax/core/memory/ledgerSchema'
+import { LEDGER_V1_TABLES, LEDGER_V2_TABLES, LEDGER_V3_TABLES, LEDGER_V4_TABLES, LEDGER_TX_TABLES, WORLD_MODEL_TABLES, KNOWLEDGE_CORRECTION_TABLES, EVENT_CONTEXT_TABLES, MANUSCRIPT_EDITION_TABLES, KNOWLEDGE_SOURCE_TABLES, STORY_CALENDAR_TABLES, WORLD_FORK_TABLES } from '@pinax/core/memory/ledgerSchema'
 export { LEDGER_V1_TABLES, LEDGER_V2_TABLES, LEDGER_V3_TABLES, LEDGER_V4_TABLES, LEDGER_TX_TABLES }
 const SCHEMA_META_ID = 'schema'
+export const HISTORY_ACTIVITY_INDEX = '[after.scope+after.scopeId+recordedAt]'
 
 export function createLedgerDb(name = MEMORY_HISTORY_DB) {
   if (!globalThis.indexedDB) return { ok: false, reason: 'indexeddb-unavailable', retryable: false }
@@ -17,6 +19,14 @@ export function createLedgerDb(name = MEMORY_HISTORY_DB) {
   db.version(2).stores(LEDGER_V2_TABLES)
   db.version(3).stores(LEDGER_V3_TABLES)
   db.version(4).stores(LEDGER_V4_TABLES)
+  db.version(5).stores({ revisions: `id, candidateId, ${HISTORY_ACTIVITY_INDEX}` })
+  db.version(6).stores(WORLD_MODEL_TABLES).upgrade(tx => materializeLegacyWorldClaims(tx))
+  db.version(7).stores(KNOWLEDGE_CORRECTION_TABLES)
+  db.version(8).stores(EVENT_CONTEXT_TABLES)
+  db.version(9).stores(MANUSCRIPT_EDITION_TABLES)
+  db.version(10).stores(KNOWLEDGE_SOURCE_TABLES)
+  db.version(11).stores(STORY_CALENDAR_TABLES)
+  db.version(12).stores(WORLD_FORK_TABLES)
   return { ok: true, db }
 }
 
@@ -32,6 +42,13 @@ function classifyOpenError(error, blocked) {
 // open never deletes or recreates the author's database.
 export async function openLedgerDb(options = {}) {
   return openLedgerDbNamed(MEMORY_HISTORY_DB, options)
+}
+
+export async function withLedgerDb(action, options) {
+  const opened = await openLedgerDb(options)
+  if (!opened.ok) throw new Error(opened.detail || opened.reason)
+  try { return await action(opened.db) }
+  finally { await closeLedgerDb(opened.db) }
 }
 
 // Named variant used by isolated-restore paths (and the restore smoke) to
@@ -94,16 +111,22 @@ export async function ensureSchemaMeta(db) {
     const meta = db.table('ledgerMeta')
     const existing = await meta.get(SCHEMA_META_ID)
     if (existing?.schemaVersion === LEDGER_SCHEMA_VERSION) return { ok: true, meta: existing }
-    const seeded = {
-      id: SCHEMA_META_ID,
-      schemaVersion: LEDGER_SCHEMA_VERSION,
-      // The v1 history table predates the ledger; the ledger starts empty and
-      // never claims to have reconstructed pre-ledger facts.
-      createdAt: existing?.createdAt || Date.now(),
-      v1HistoryBaselinePreserved: true
-    }
-    await meta.put(seeded)
-    return { ok: true, meta: seeded }
+    // Several pages may open an old or empty store together. Only seed (or
+    // upgrade) the version that is still present when our transaction starts.
+    return await db.transaction('rw', meta, async () => {
+      const current = await meta.get(SCHEMA_META_ID)
+      if (current?.schemaVersion === LEDGER_SCHEMA_VERSION) return { ok: true, meta: current }
+      const version = current?.schemaVersion
+      if (version != null && ![1, '1', String(LEDGER_SCHEMA_VERSION)].includes(version)) {
+        return { ok: false, reason: 'schema-unsupported', retryable: false, detail: '账本数据版本不受当前应用支持' }
+      }
+      const seeded = {
+        ...current, id: SCHEMA_META_ID, schemaVersion: LEDGER_SCHEMA_VERSION,
+        createdAt: current?.createdAt ?? Date.now(), v1HistoryBaselinePreserved: true
+      }
+      await meta.put(seeded)
+      return { ok: true, meta: seeded }
+    })
   } catch (error) {
     const name = error?.name || ''
     if (name === 'QuotaExceededError') {
@@ -114,23 +137,17 @@ export async function ensureSchemaMeta(db) {
 }
 
 export async function readLedgerHealth(db) {
-  const meta = db.table('ledgerMeta')
-  const schema = await meta.get(SCHEMA_META_ID)
-  const [revisions, versions, proposals, decisions, receipts] = await Promise.all([
-    db.table('revisions').count(),
-    db.table('factVersions').count(),
-    db.table('factProposals').count(),
-    db.table('factDecisions').count(),
-    db.table('turnReceipts').count()
-  ])
-  return {
-    schemaVersion: schema?.schemaVersion || null,
-    v1RevisionCount: revisions,
-    factVersionCount: versions,
-    proposalCount: proposals,
-    decisionCount: decisions,
-    turnReceiptCount: receipts
-  }
+  const names = ['ledgerMeta', 'revisions', 'factVersions', 'factProposals', 'factDecisions', 'turnReceipts']
+  return db.transaction('r', names, async () => {
+    const [schema, revisions, versions, proposals, decisions, receipts] = await Promise.all([
+      db.ledgerMeta.get(SCHEMA_META_ID), db.revisions.count(), db.factVersions.count(),
+      db.factProposals.count(), db.factDecisions.count(), db.turnReceipts.count()
+    ])
+    return {
+      schemaVersion: schema?.schemaVersion || null, v1RevisionCount: revisions,
+      factVersionCount: versions, proposalCount: proposals, decisionCount: decisions, turnReceiptCount: receipts
+    }
+  })
 }
 
 export async function closeLedgerDb(db) {

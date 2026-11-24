@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import Database from 'better-sqlite3'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -36,11 +37,20 @@ try {
 
   const imported = await importLegacyProject({ bundlePath, destinationParentDirectory: root, name: '雾港纪事' })
   assert.equal(imported.alreadyImported, false)
+  const databasePath = join(destinationDirectory, '.pinax/project.sqlite')
+  // A repeat import may inspect a project originally imported on v2.
+  const original = new Database(databasePath)
+  original.exec('DROP INDEX file_transactions_pending_item; DELETE FROM schema_migrations WHERE version=3')
+  original.pragma('journal_mode = DELETE')
+  original.close()
+  const beforeRecheck = await readFile(databasePath)
   const repeated = await importLegacyProject({ bundlePath, destinationParentDirectory: root, name: '雾港纪事' })
   assert.equal(repeated.alreadyImported, true)
   assert.equal(repeated.bundleId, imported.bundleId)
+  assert.deepEqual(await readFile(databasePath), beforeRecheck)
 
-  const database = openProjectDatabase(join(destinationDirectory, '.pinax/project.sqlite'))
+  const database = openProjectDatabase(databasePath, { readOnly: true })
+  assert.equal(database.schemaVersion, 2)
   const items = database.listTextItems()
   assert.equal(items.filter(item => item.kind === 'chapter').length, 1)
   assert.equal(items.filter(item => item.kind === 'reference').length, 1)
@@ -49,6 +59,11 @@ try {
   const chapter = items.find(item => item.kind === 'chapter')
   closeProjectDatabase(database)
   assert.equal(await readFile(join(destinationDirectory, chapter.relativePath), 'utf8'), '潮声\n\n雾从码头升起。')
+  // Changing a payload alone must fail the same-id repeat validation.
+  const damaged = new Database(databasePath)
+  damaged.exec("UPDATE legacy_records SET json_payload='{}' WHERE id = (SELECT min(id) FROM legacy_records)")
+  damaged.close()
+  await assert.rejects(importLegacyProject({ bundlePath, destinationParentDirectory: root, name: '雾港纪事' }), { code: 'DESKTOP_INTEGRITY_FAILED' })
 
   process.stdout.write(`desktop legacy migration smoke passed: ${preview.report.total} records, idempotent re-import\n`)
 } finally {

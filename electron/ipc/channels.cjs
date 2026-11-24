@@ -1,9 +1,11 @@
 const DESKTOP_CHANNELS = Object.freeze({
+  WINDOW_APPEARANCE: 'pinax:window:appearance',
   PROJECT_CHOOSE_DIRECTORY: 'pinax:project:choose-directory',
   PROJECT_CREATE: 'pinax:project:create',
   PROJECT_OPEN: 'pinax:project:open',
   PROJECT_GET_ACTIVE: 'pinax:project:get-active',
   PROJECT_LIST_TEXT: 'pinax:project:list-text',
+  PROJECT_MANUSCRIPT: 'pinax:project:manuscript',
   PROJECT_READ_TEXT: 'pinax:project:read-text',
   PROJECT_WRITE_TEXT: 'pinax:project:write-text',
   PROJECT_CHECK_INTEGRITY: 'pinax:project:check-integrity',

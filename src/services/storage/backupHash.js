@@ -1,8 +1,8 @@
 /**
  * 自包含 SHA-256（FIPS 180-4）纯实现。
  *
- * 为什么不用 crypto.subtle：jsdom 测试环境不保证 subtle，浏览器/Node/测试三处
- * 必须产出完全一致的哈希（manifest 校验是整包拒绝的判据）。
+ * 供同步存储事务和缺少 Web Crypto 的 HTTP 环境使用。ZIP 异步路径可使用
+ * crypto.subtle，两种实现产生同一份 manifest 摘要。
  * 输入 Uint8Array，输出小写 hex。已在与 Node crypto 的对拍中验证（见 backupExport.test.js）。
  */
 
@@ -22,13 +22,15 @@ const rotr = (x, n) => (x >>> n) | (x << (32 - n))
 export function sha256Bytes(bytes) {
   const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
   const bitLength = data.length * 8
-  const paddedLength = (((data.length + 8) >> 6) + 1) << 6
-  const padded = new Uint8Array(paddedLength)
-  padded.set(data)
-  padded[data.length] = 0x80
-  const view = new DataView(padded.buffer)
-  view.setUint32(paddedLength - 8, Math.floor(bitLength / 2 ** 32), false)
-  view.setUint32(paddedLength - 4, bitLength >>> 0, false)
+  const remaining = data.length % 64
+  const fullLength = data.length - remaining
+  const full = new DataView(data.buffer, data.byteOffset, fullLength)
+  const tail = new Uint8Array(remaining < 56 ? 64 : 128)
+  tail.set(data.subarray(fullLength))
+  tail[remaining] = 0x80
+  const tailView = new DataView(tail.buffer)
+  tailView.setUint32(tail.length - 8, Math.floor(bitLength / 2 ** 32), false)
+  tailView.setUint32(tail.length - 4, bitLength >>> 0, false)
 
   const h = new Uint32Array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
@@ -36,8 +38,10 @@ export function sha256Bytes(bytes) {
   ])
   const w = new Uint32Array(64)
 
-  for (let offset = 0; offset < paddedLength; offset += 64) {
-    for (let i = 0; i < 16; i += 1) w[i] = view.getUint32(offset + i * 4, false)
+  for (let offset = 0; offset < fullLength + tail.length; offset += 64) {
+    const view = offset < fullLength ? full : tailView
+    const start = offset < fullLength ? offset : offset - fullLength
+    for (let i = 0; i < 16; i += 1) w[i] = view.getUint32(start + i * 4, false)
     for (let i = 16; i < 64; i += 1) {
       const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3)
       const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10)

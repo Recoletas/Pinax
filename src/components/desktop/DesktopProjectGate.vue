@@ -1,11 +1,27 @@
 <script setup>
 import { nextTick, onMounted, ref, watch } from 'vue'
+import { desktopManuscript } from '../../services/writing/desktopManuscript.js'
+import { loadWritingBooks, saveWritingBooksDurable } from '../../services/writing/writingBooksRepository.js'
 import { useDesktopProject } from '../../composables/useDesktopProject'
 
 const primaryAction = ref(null)
 const migrationAction = ref(null)
 const migrationConfirmAction = ref(null)
 const project = useDesktopProject(window)
+const catalogError = ref('')
+watch(project.activeProject, active => {
+  catalogError.value = ''
+  if (!active) return
+  try {
+    const projectBooks = desktopManuscript({ action: 'catalog' }) || []
+    if (!projectBooks.length) return
+    const current = loadWritingBooks()
+    const missing = projectBooks.filter(book => !current.some(item => item.id === book.id))
+    if (missing.length && !saveWritingBooksDurable([...current, ...missing]).ok) throw new Error('无法保存本机作品索引')
+  } catch (error) {
+    catalogError.value = error.message
+  }
+}, { flush: 'sync' })
 
 async function focusPrimaryAction() {
   await nextTick()
@@ -44,7 +60,8 @@ function migrationIssues(report) {
 </script>
 
 <template>
-  <slot v-if="!project.isDesktop || project.hasActiveProject.value" />
+  <p v-if="catalogError" role="alert">{{ catalogError }}</p>
+  <slot v-else-if="!project.isDesktop || project.hasActiveProject.value" />
   <main
     v-else
     class="desktop-project-gate"
@@ -54,7 +71,7 @@ function migrationIssues(report) {
     <section class="desktop-project-gate__content" :aria-busy="project.busy.value || project.initializing.value">
       <p class="desktop-project-gate__eyebrow">Pinax · 本地写作空间</p>
       <h1 id="desktop-project-title">打开一部作品，继续写作</h1>
-      <p class="desktop-project-gate__summary">正文与资料保存在你选择的项目文件夹中。</p>
+      <p class="desktop-project-gate__summary">选择桌面项目目录。迁移到项目里的章节从文件打开，编辑后保存回项目目录。</p>
 
       <div class="desktop-project-gate__actions">
         <button

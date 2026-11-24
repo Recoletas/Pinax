@@ -148,8 +148,10 @@ try {
   /* ---------- 2. 保存：sync 请求体含完整 worldbook + 真实镜像落盘读回 ---------- */
   console.log('[2] 保存：sync 载荷完整 worldbook；真实 mirrorBook 落盘 + readWorldbookFolder 读回')
   resetFileRepositoryCaches()
+  const mirrorService = createLocalMirrorService({ rootPath: tmpBase, appDataPath: path.join(tmpBase, 'appdata') })
+  const actualProject = mirrorService.createProjectAt({ path: path.join(tmpBase, 'project'), name: '示例项目', bookId: 'book_1' })
   const syncCapture2 = []
-  setFetchImpl(createMockFetch({ projects: BOUND_PROJECTS, syncCapture: syncCapture2 }))
+  setFetchImpl(createMockFetch({ projects: [{ ...BOUND_PROJECTS[0], projectId: actualProject.manifest.projectId }], syncCapture: syncCapture2 }))
   const saveResult = await saveWorldbookToFiles(PROJECT_ROOT, FULL_WORLDBOOK)
   check('saveWorldbookToFiles ok', saveResult.ok === true && typeof saveResult.dir === 'string')
   const syncPayload = syncCapture2[0]
@@ -163,7 +165,6 @@ try {
   check('sync 载荷 worldbook 完整（keys/正文）', pushedEntry?.keys?.[0] === '李青书' && typeof pushedEntry?.content === 'string')
   check('sync 载荷不含 entriesMap（索引不入文件）', Array.isArray(syncPayload?.worldbook?.entries) && syncPayload.worldbook.entriesMap === undefined)
 
-  const mirrorService = createLocalMirrorService({ rootPath: tmpBase, appDataPath: path.join(tmpBase, 'appdata') })
   const mirrored = mirrorService.mirrorBook(syncPayload)
   const readBack = mirrorService.readWorldbookFolder(mirrored.dir)
   check('真实 mirrorBook 落盘并读回（ok）', readBack.ok === true && readBack.worldbook.entries.length === 2)

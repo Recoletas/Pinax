@@ -7,6 +7,14 @@ import { useComposableWorkspace } from '../../composables/useComposableWorkspace
 import { createDirectory, readDirectory, saveDirectory, directoryRows, directoryResourceKey, moveDirectoryRow, DIRECTORY_PREFIX } from '../../services/workspace/projectDirectory.js'
 import { listNarrativeAssets, subscribeNarrativeAssets } from '../../services/media/narrativeAssets.js'
 import { writingChapterRowLabel, chapterTitleOrdinal } from '../../services/writing/writingChapterLabels.js'
+// 章节行拆成“序号 | 标题”两列，统一作者标题里全角空格/无空格的混用。
+const CHAPTER_ORDINAL_PATTERN = /^(第\s*[零〇一二三四五六七八九十百千万两0-9０-９]+\s*[章回节卷]|chapter\s+(?:\d+|[ivxlcdm]+)\b)[\s\u3000:：·.、-]*/iu
+function chapterNameParts(title) {
+  const text = String(title || '')
+  const match = text.match(CHAPTER_ORDINAL_PATTERN)
+  if (!match || match[0].length >= text.length) return { ordinal: '', name: text }
+  return { ordinal: match[1].replace(/\s+/gu, ''), name: text.slice(match[0].length) }
+}
 import { isMachineLedgerEntry } from '../../services/worldbook/entryTableColumns.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { listComicPages, createComicPage, saveComicPage } from '../../services/media/comicPageStore.js'
@@ -576,8 +584,10 @@ function drop(event, row = null) {
       <button type="button" :title="tr('刷新目录')" :aria-label="tr('刷新目录')" @click="reload"><WorkbenchIcon name="refresh" :size="14" /></button>
     </div></div>
     <div v-if="batchMode" class="directory-selection-toggle"><span>{{ tr('已选择 {count} 章', { count: batchChapters.length }) }}</span><button type="button" :disabled="opening" @click="removeSelectedChapters">{{ tr('删除') }}</button><button type="button" @click="leaveBatchMode">{{ tr('取消多选') }}</button></div>
-    <button v-if="!batchMode && chapters.length > 1" type="button" class="control-quiet" @click="enterBatchMode">{{ tr('多选章节') }}</button>
-    <div class="directory-search"><WorkbenchIcon name="search" :size="13" /><input v-model="query" type="search" :placeholder="tr('搜索本书内容')" :aria-label="tr('搜索本书内容')" /></div>
+    <div class="directory-search-row">
+      <div class="directory-search"><WorkbenchIcon name="search" :size="13" /><input v-model="query" type="search" :placeholder="tr('搜索本书内容')" :aria-label="tr('搜索本书内容')" /></div>
+      <button v-if="!batchMode && chapters.length > 1" type="button" class="directory-multi" :title="tr('多选章节')" :aria-label="tr('多选章节')" @click="enterBatchMode"><WorkbenchIcon name="list-checks" :size="15" /></button>
+    </div>
     <div v-if="filterOpen || filter" class="directory-controls"><select v-model="filter" :aria-label="tr('按类型筛选')"><option value="">{{ tr('全部类型') }}</option><option value="chapter">{{ tr('章节') }}</option><option value="exploration">{{ tr('构思') }}</option><option value="entry">{{ tr('设定') }}</option><option value="source">{{ tr('资料 · 只读') }}</option><option value="sources">{{ tr('项目文档 · 只读') }}</option><option value="map-editor">{{ tr('地图') }}</option><option value="comic">{{ tr('漫画') }}</option><option value="asset">{{ tr('素材') }}</option></select><button type="button" :aria-label="tr('清除类型筛选')" @click="filter = ''; filterOpen = false"><WorkbenchIcon name="close" :size="14" /></button></div>
     <div v-if="filtering" class="directory-filter-summary"><span>{{ tr('{count} 项', { count: visible.length }) }}</span><button type="button" @click="query = ''; filter = ''">{{ tr('清除筛选') }}</button></div>
     <p v-if="error" class="directory-notice" role="alert">{{ tr(error) }}</p>
@@ -588,7 +598,7 @@ function drop(event, row = null) {
       </form>
       <div v-else role="treeitem" :aria-level="row.depth + 1" :aria-expanded="row.folder ? !closed.has(row.id) : undefined" :aria-selected="(batchMode ? batchKeys.has(row.key) : row.key === selectedKey)" :aria-current="isActiveRow(row) ? 'page' : undefined" :aria-label="`${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" :tabindex="row.key === focusedKey || (!visible.some(item => item.key === focusedKey) && index === 0) ? 0 : -1" :data-key="row.key" :title="`${row.path ? row.path + ' / ' : ''}${row.title} · ${tr(row.label)}${row.readonly ? ' · 只读' : ''}`" class="directory-row" :data-resource-type="row.resource?.type" :data-setting-type="row.settingType" :class="{ 'is-active': isActiveRow(row), 'is-selected': (batchMode ? batchKeys.has(row.key) : row.key === selectedKey), 'is-folder': row.folder, 'is-category': row.virtual, 'drop-before': dropHint?.key === row.key && dropHint.edge === 'before', 'drop-after': dropHint?.key === row.key && dropHint.edge === 'after', 'drop-inside': dropHint?.key === row.key && dropHint.edge === 'inside' }" :style="{ paddingInlineStart: `${8 + row.depth * 14}px` }"  :draggable="!batchMode && !row.virtual && !filtering && !folderDraft && !renameKey" @focus="focusedKey = row.key" @click="pickChapter(row, $event)" @contextmenu.stop.prevent="showTools(row, $event)" @keydown="keydown($event, row)" @dragstart="drag($event, row)" @dragend="endDrag" @dragover.stop="dragOver($event, row)" @drop.stop="drop($event, row)">
         <input v-if="batchMode && row.resource?.type === 'chapter'" type="checkbox" class="directory-chapter-check" :checked="batchKeys.has(row.key)" :aria-label="tr('选择章节')" @click.stop="pickChapter(row, { ctrlKey: true })" @keydown.stop />
-        <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.folder && !closed.has(row.id) && !row.virtual && row.id !== 'settings' ? 'folder-open' : row.icon" :size="16" /><form v-if="renameKey === row.key" class="directory-rename" @click.stop @submit.stop.prevent="renameFolder" @keydown.esc.stop.prevent="cancelFolderEdit"><input data-directory-edit v-model="rename" :aria-label="tr('重命名文件夹')" maxlength="120" required /><button type="submit" :aria-label="tr('保存名称')">↵</button></form><span v-else class="directory-name">{{ row.title }}<small v-if="filtering && row.path">{{ row.path }}</small></span><button v-if="!renameKey" type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
+        <WorkbenchIcon v-if="row.folder" name="chevron-down" :size="11" class="directory-chevron" :class="{ closed: closed.has(row.id) }" /><span v-else class="directory-indent"></span><WorkbenchIcon :name="row.folder && !closed.has(row.id) && !row.virtual && row.id !== 'settings' ? 'folder-open' : row.icon" :size="16" /><form v-if="renameKey === row.key" class="directory-rename" @click.stop @submit.stop.prevent="renameFolder" @keydown.esc.stop.prevent="cancelFolderEdit"><input data-directory-edit v-model="rename" :aria-label="tr('重命名文件夹')" maxlength="120" required /><button type="submit" :aria-label="tr('保存名称')">↵</button></form><span v-else class="directory-name" :class="{ 'directory-name--chapter': row.resource?.type === 'chapter' && chapterNameParts(row.title).ordinal }"><template v-if="row.resource?.type === 'chapter' && chapterNameParts(row.title).ordinal"><span class="directory-ordinal">{{ chapterNameParts(row.title).ordinal }}</span><span class="directory-title">{{ chapterNameParts(row.title).name }}</span></template><template v-else>{{ row.title }}</template><small v-if="filtering && row.path">{{ row.path }}</small></span><button v-if="!renameKey" type="button" class="directory-row-more" :aria-label="tr('管理 {name}', { name: row.title })" :title="tr('更多操作')" @click.stop="showTools(row, $event)" @dragstart.stop.prevent><WorkbenchIcon name="more" :size="15" /></button>
       </div>
       </template>
       <div class="directory-root-drop" :class="{ 'drop-inside': dropHint?.edge === 'root' }" @dragover="dragOver($event)" @drop="drop($event)"></div>
@@ -673,6 +683,10 @@ function drop(event, row = null) {
 .directory-indent { width: 11px; }
 .directory-chevron.closed { transform: rotate(-90deg); }
 .directory-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.directory-row:has(.directory-name--chapter) > svg:not(.directory-chevron) { display: none; }
+.directory-name--chapter { display: flex; align-items: baseline; gap: 0.6em; padding-inline-start: 10px; }
+.directory-ordinal { flex: none; min-width: 5em; color: var(--text-muted); font-size: 0.9em; font-variant-numeric: tabular-nums; }
+.directory-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .directory-name small { display: block; color: var(--text-muted); font-size: 11px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; }
 .is-folder { font-weight: 500; }
 .directory-row.is-folder[aria-level="1"] { margin-top: 6px; }
@@ -715,6 +729,12 @@ function drop(event, row = null) {
 .directory-notice { padding: 8px 12px; margin: 0; color: var(--text-secondary); font-size: 12px; }
 @media (pointer: coarse) { .directory-row, .project-directory button, .directory-create summary { min-height: 44px; } }
 
+
+.directory-search-row { display: flex; align-items: center; gap: 4px; margin: 3px 10px 9px; }
+.directory-search-row .directory-search { flex: 1; min-width: 0; margin: 0; }
+.directory-search-row .directory-multi { flex: none; display: grid; place-items: center; width: 30px; height: 32px; padding: 0; color: var(--text-secondary); border-radius: var(--radius-control); }
+.directory-search-row .directory-multi:hover { background: var(--nav-hover); }
+@media (pointer: coarse) { .directory-search-row .directory-multi { width: 44px; height: 44px; } }
 </style>
 
 <style scoped>

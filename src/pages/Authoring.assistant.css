@@ -180,8 +180,16 @@
 .writing-page:not(.is-assistant-full) .authoring-knowledge__composer { padding: 12px var(--assistant-gutter) 20px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__context { order: -1; flex-basis: 100%; margin: 0 4px 2px; font-size: 13px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__composer-actions { flex-wrap: wrap; gap: 4px 6px; }
-.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list { display: grid; justify-content: stretch; gap: 4px; }
-.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button { justify-content: flex-start; gap: 10px; padding: 9px 4px; border: 0; border-radius: var(--radius-control); font-size: 14px; }
+/* 侧栏起始态：标题、上下文、输入框、建议按 8/12/20 节奏排布，左缘统一对齐。 */
+.writing-page:not(.is-assistant-full) .authoring-knowledge.is-starting:not(.is-expanded) .authoring-knowledge__body { padding-top: clamp(20px, 4vh, 40px); }
+.writing-page:not(.is-assistant-full) .authoring-knowledge.is-starting:not(.is-expanded) .authoring-knowledge__intro { margin-bottom: 14px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge.is-starting:not(.is-expanded) .authoring-knowledge__intro h3 { font-size: 20px; font-weight: 600; letter-spacing: 0; }
+.writing-page:not(.is-assistant-full) .assistant-document-context { margin: 0 0 6px; padding-inline: 2px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__composer .agent-tools summary { min-height: 28px; margin-bottom: 8px; padding: 2px; color: var(--text-muted); font-size: 12px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__composer .agent-tools summary:hover { color: var(--text-primary); }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__start-options { margin-top: 20px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px; }
+.writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button { justify-content: flex-start; gap: 6px; min-height: 32px; padding: 5px 12px; border: 1px solid var(--hairline-soft); border-radius: 999px; color: var(--text-secondary); font-size: 13px; }
 .writing-page:not(.is-assistant-full) .authoring-knowledge__prompt-list button > svg { color: var(--text-muted); }
 @media (min-width: 1181px) {
   .theme-legacy .writing-page:not(.is-assistant-full) .writing-inspector { margin: 0; border: 0; border-inline-start: 1px solid var(--hairline-soft); border-radius: 0; box-shadow: none; }

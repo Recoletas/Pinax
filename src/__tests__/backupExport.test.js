@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
+import { createHash } from 'node:crypto'
 import JSZip from 'jszip'
 import {
   buildBackup,
@@ -8,25 +9,30 @@ import {
   PINAX_BACKUP_KEYS,
   restoreBackup
 } from '../utils/backupExport'
+import { readStoredText, writeStoredText } from '../services/storage/writingStorageCodec.js'
+import { getMirrorReceipt, updateMirrorReceipt } from '../services/localMirrorSettings.js'
+import { mirrorEpochKey } from '../services/storage/mirrorReceiptEpoch.js'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { buildBetaDiagnosticReport } from '../utils/betaDiagnosticExport.js'
-import { sha256HexOfText } from '../services/storage/backupHash'
+import { sha256HexOfBytes, sha256HexOfText } from '../services/storage/backupHash'
 import {
   buildWorkspaceBackupBundle,
   inspectWorkspaceBackup,
   restoreWorkspaceBackupBundle
 } from '../services/storage/workspaceBackupBundle.js'
-import { restoreSourceArchiveRecords } from '../services/worldbook/worldbookSourceArchive'
+import { loadAllSourceArchiveRecords, restoreSourceArchiveRecords } from '../services/worldbook/worldbookSourceArchive'
 
 // jsdom has no IndexedDB. These ZIP contract fixtures carry an empty ledger;
 // real Dexie transactions/failures are exercised by abc-integration-smoke.mjs.
-vi.mock('../services/memory/ledger/ledgerDb', () => ({
-  openLedgerDb: async () => ({ ok: true, db: {
-    transaction: async (_mode, _tables, fn) => fn(),
-    table: () => ({ toArray: async () => [], get: async () => undefined, add: async () => {}, bulkDelete: async () => {} })
-  } }),
-  closeLedgerDb: async () => {}
-}))
+vi.mock('../services/memory/ledger/ledgerDb', () => {
+  const emptyTable = {
+    toArray: async () => [], get: async () => undefined, bulkGet: async keys => keys.map(() => undefined),
+    add: async () => {}, bulkDelete: async () => {}
+  }
+  const table = () => emptyTable
+  const db = { table, transaction: async (_mode, _tables, fn) => fn({ table }) }
+  return { openLedgerDb: async () => ({ ok: true, db }), closeLedgerDb: async () => {} }
+})
 
 // 测试用二进制 store（Map 兜底，替代 jsdom 缺失的 IndexedDB）
 function createFakeBinaryStore() {
@@ -70,6 +76,41 @@ localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '{"apiKey":"sk-test"}')
     expect(b.excludedSecretKeys).toContain(STORAGE_KEYS.API_SETTINGS)
     expect(b.includesIndexedDb).toBe(false)
     expect(b.keys[STORAGE_KEYS.WRITING_BOOKS]).toBe('[]')
+
+    // Simulate a quota-limited origin. Validate old plain JSON, compact reads,
+    // rejection of a damaged record, and exact preservation on failed writes.
+    let physical = '[]'
+    const extraKeys = new Map()
+    const limited = {
+      length: 1,
+      key: () => 'writing_books',
+      getItem: key => key === 'writing_books' ? physical : extraKeys.get(key) ?? null,
+      removeItem: key => extraKeys.delete(key),
+      setItem: (key, value) => {
+        if (key !== 'writing_books') { extraKeys.set(key, value); return }
+        if (value.length > 32000) throw new DOMException('full', 'QuotaExceededError')
+        physical = value
+      }
+    }
+    const logical = JSON.stringify([{ id: 'long', content: '诸岛之间的风向🪶'.repeat(6000) }])
+    expect(readStoredText(limited, 'writing_books')).toBe('[]')
+    writeStoredText(limited, 'writing_books', logical)
+    expect(physical.length).toBeLessThan(logical.length)
+    expect(buildBackup({ storage: limited }).keys.writing_books).toBe(logical)
+    expect(createRestorePlan(buildBackup({ storage: limited }), limited).skip).toContain('writing_books')
+    const intact = physical
+    const denied = { ...limited, setItem: () => { throw new DOMException('full', 'QuotaExceededError') } }
+    expect(() => writeStoredText(denied, 'writing_books', logical)).toThrow()
+    expect(physical).toBe(intact)
+    physical = intact.slice(0, -12)
+    expect(() => readStoredText(limited, 'writing_books')).toThrow(/校验失败/)
+    const damagedBackup = { app: 'Pinax', schemaVersion: 2, keys: { writing_books: physical } }
+    expect(createRestorePlan(damagedBackup, limited).valid).toBe(false)
+    const cleanBackup = { ...damagedBackup, keys: { writing_books: logical } }
+    expect(createRestorePlan(cleanBackup, limited).overwrite).toEqual(['writing_books'])
+    expect(restoreBackup(cleanBackup, { storage: limited }).success).toBe(true)
+    expect(readStoredText(limited, 'writing_books')).toBe(logical)
+
 }
 {
 
@@ -174,6 +215,12 @@ localStorage.setItem('same-key', 'same')
     localStorage.setItem(STORAGE_KEYS.WRITING_BOOKS, JSON.stringify([{ id: 'b1', title: '工作区书', chapters: [] }]))
 
     expect(sha256HexOfText('abc')).toBe('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+    const binary = Uint8Array.from({ length: 8200 }, (_, i) => i % 247)
+    for (const length of [0, 1, 55, 56, 63, 64, 65, 119, 120, 127, 128, 129, 8192]) {
+      const slice = binary.subarray(7, 7 + length)
+      const expected = createHash('sha256').update(Buffer.from(slice)).digest('hex')
+      expect(sha256HexOfBytes(slice)).toBe(expected)
+    }
 
     localStorage.setItem(STORAGE_KEYS.MEDIA_ASSETS, JSON.stringify([
       { id: 'm-1', schemaVersion: 1, kind: 'image', mimeType: 'image/png', storageRef: 'pinax-media://m-1', title: '参考图' }
@@ -249,8 +296,70 @@ localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '"x"')
     localStorage.clear()
 
 for (const v of Object.values(STORAGE_KEYS)) {
-      expect(PINAX_BACKUP_KEYS).toContain(v)
+      if (v === STORAGE_KEYS.LOCAL_MIRROR_RECEIPTS) expect(PINAX_BACKUP_KEYS).not.toContain(v)
+      else expect(PINAX_BACKUP_KEYS).toContain(v)
     }
+    const receipt = STORAGE_KEYS.LOCAL_MIRROR_RECEIPTS
+    localStorage.setItem(receipt, 'current-device')
+    expect(buildBackup().keys[receipt]).toBeUndefined()
+    const result = restoreBackup({ app: 'Pinax', version: 2, keys: { [receipt]: 'foreign-device' } })
+    expect(result.success).toBe(true)
+    expect(localStorage.getItem(receipt)).toBe('current-device')
+
+    const shelf = STORAGE_KEYS.WRITING_BOOKS
+    const other = { id: 'other', title: '同一作品' }
+    const newer = JSON.stringify([{ id: 'a', title: '在盘新版' }, other])
+    const older = JSON.stringify([{ title: '同一作品', id: 'other' }, { id: 'a', title: '备份旧版' }])
+    localStorage.setItem(shelf, newer)
+    updateMirrorReceipt('p', 'a', { revision: 8 })
+    updateMirrorReceipt('q', 'other', { revision: 6 })
+    const originalEpoch = getMirrorReceipt('p', 'a').epoch
+    const restore = { app: 'Pinax', version: 2, keys: { [shelf]: older, [mirrorEpochKey('a')]: 'foreign' } }
+    const preview = createRestorePlan(restore, localStorage, { review: true })
+    const newDraft = JSON.stringify([{ id: 'a', title: '预览后编辑' }, other])
+    localStorage.setItem(shelf, newDraft)
+    const stale = restoreBackup(restore, { expectedReviewRevision: preview.reviewRevision, acceptRestoreRisk: true })
+    expect(stale).toMatchObject({ success: false, reason: 'restore-review-changed', written: [] })
+    expect(localStorage.getItem(shelf)).toBe(newDraft)
+    expect(stale.plan.reviewRevision).not.toBe(preview.reviewRevision)
+    localStorage.setItem(shelf, newer)
+    expect(restoreBackup(restore, { overwrite: false }).written).toEqual([])
+    expect(getMirrorReceipt('p', 'a').revision).toBe(8)
+
+    const failing = (duringFailure = () => {}) => ({
+      getItem: key => localStorage.getItem(key),
+      setItem: (key, value) => {
+        if (key === 'blocked') { duringFailure(); throw new DOMException('full', 'QuotaExceededError') }
+        localStorage.setItem(key, value)
+      },
+      removeItem: key => localStorage.removeItem(key)
+    })
+    const interrupted = { ...restore, keys: { ...restore.keys, blocked: 'replace' } }
+    // Existing keys are overwritten in insertion order after all additions.
+    localStorage.setItem('blocked', 'initial')
+    expect(restoreBackup(interrupted, { storage: failing() })).toMatchObject({ success: false, rolledBack: true })
+    expect(localStorage.getItem(shelf)).toBe(newer)
+    expect(getMirrorReceipt('p', 'a').revision).toBe(8)
+
+    expect(restoreBackup(restore).written).toEqual([shelf])
+    expect(getMirrorReceipt('p', 'a').revision).toBe(0)
+    updateMirrorReceipt('p', 'a', { revision: 9 }, originalEpoch)
+    expect(getMirrorReceipt('p', 'a').revision).toBe(0)
+    expect(getMirrorReceipt('q', 'other').revision).toBe(6)
+    expect(buildBackup().keys[mirrorEpochKey('a')]).toBeUndefined()
+    localStorage.setItem(mirrorEpochKey('a'), 'pending:interrupted')
+    expect(restoreBackup(restore).written).toEqual([])
+    expect(getMirrorReceipt('p', 'a').epoch).not.toMatch(/^pending:/)
+
+    localStorage.setItem(shelf, newer)
+    updateMirrorReceipt('p', 'a', { revision: 11 })
+    const concurrent = JSON.stringify([{ id: 'a', title: '另一页刚刚保存的内容' }, other])
+    const raced = restoreBackup(interrupted, { storage: failing(() => localStorage.setItem(shelf, concurrent)) })
+    expect(raced).toMatchObject({ success: false, rolledBack: false, rollbackFailed: true })
+    expect(localStorage.getItem(shelf)).toBe(concurrent)
+    expect(getMirrorReceipt('p', 'a').revision).toBe(0)
+    expect(getMirrorReceipt('q', 'other').revision).toBe(6)
+
 }
 {
 
@@ -464,6 +573,40 @@ const values = new Map([['stable-key', 'old']])
     const rollbackBundle = await buildWorkspaceBackupBundle({ storage: localStorage, binaryStore: exportStore })
     const restoreStore = createFakeBinaryStore()
     const originalPut = restoreStore.put
+    restoreStore.put = async (id, value) => {
+      if (id === 'rb-2') throw new Error('injected media write failure')
+      return originalPut(id, value)
+    }
+    const workspace = title => ({ id: 'shared-id', schemaVersion: 1, title })
+    await restoreSourceArchiveRecords({ workspaces: [workspace('备份中的工作区')], chunks: [workspace('同 ID 的资料片段')] })
+    localStorage.setItem(STORAGE_KEYS.API_SETTINGS, '排除的设置')
+    const mergedBundle = await buildWorkspaceBackupBundle({ storage: localStorage, includeSecrets: true, binaryStore: exportStore })
+    localStorage.removeItem(STORAGE_KEYS.API_SETTINGS)
+    await restoreSourceArchiveRecords({ workspaces: [workspace('编辑后的工作区')] })
+    const keepStore = createFakeBinaryStore()
+    keepStore.store.set('rb-1', new Uint8Array([9]))
+    keepStore.store.set('rb-2', new Uint8Array([2]))
+    const inspected = await inspectWorkspaceBackup(mergedBundle.bytes, { storage: localStorage, binaryStore: keepStore })
+    expect(inspected.requiresRiskConfirmation).toBe(true)
+    expect(inspected.media.overwrite.map(asset => asset.id)).toEqual(['rb-1'])
+    const kept = await restoreWorkspaceBackupBundle(mergedBundle.bytes, { storage: localStorage, overwrite: false, binaryStore: keepStore })
+    expect(kept.success, kept.domains?.factLedger?.reason || kept.reason).toBe(true)
+    expect(localStorage.getItem(STORAGE_KEYS.API_SETTINGS)).toBeNull()
+    expect((await loadAllSourceArchiveRecords()).workspaces.find(row => row.id === 'shared-id').title).toBe('编辑后的工作区')
+    expect([...keepStore.store.get('rb-1')]).toEqual([9])
+
+    // A later edit to a source record during another domain's failure belongs
+    // to the author. Compensation must preserve both it and unrelated rows.
+    restoreStore.put = async () => {
+      await restoreSourceArchiveRecords({ workspaces: [workspace('同时修改'), { id: 'unrelated', title: '并发新建' }] })
+      throw new Error('media failure after concurrent edit')
+    }
+    const interrupted = await restoreWorkspaceBackupBundle(mergedBundle.bytes, { storage: localStorage, binaryStore: restoreStore, acceptRestoreRisk: true })
+    expect(interrupted.success).toBe(false)
+    expect(interrupted.domains.sourceArchive.rollbackFailed).toBe(true)
+    const workspaces = (await loadAllSourceArchiveRecords()).workspaces
+    expect(workspaces.find(row => row.id === 'shared-id').title).toBe('同时修改')
+    expect(workspaces.some(row => row.id === 'unrelated')).toBe(true)
     restoreStore.put = async (id, value) => {
       if (id === 'rb-2') throw new Error('injected media write failure')
       return originalPut(id, value)

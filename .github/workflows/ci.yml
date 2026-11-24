@@ -119,7 +119,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        journey: [authoring, workspace-backup]
+        journey: [authoring, storage, workspace-backup]
 
     steps:
       - name: Checkout
@@ -156,6 +156,15 @@ jobs:
         run: npm run ci:workspace-backup-smoke
         env:
           BACKUP_CHECK_OUT_DIR: backup-smoke-artifacts
+
+      - name: Run cross-tab, long manuscript and scoped database regressions
+        if: matrix.journey == 'storage'
+        run: |
+          npm run ci:authoring-concurrency-smoke
+          npm run ci:authoring-large-shelf-smoke
+          npm run ci:scoped-storage-smoke
+          npm run ci:novel-world-model-smoke
+          npm run ci:assistant-journal-smoke
 
       - name: Upload failure artifacts
         if: failure() && matrix.journey == 'authoring'

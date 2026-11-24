@@ -166,6 +166,7 @@ import {
   WritingNodeAttributes,
   WritingUnitNode
 } from '../../services/writing/writingUnitExtension.js'
+import { normalizeParagraphsTransaction } from '../../services/writing/writingParagraphNormalize.js'
 import {
   canOpenWritingCommandMenu,
   getLiveMarkdownPrefix,
@@ -2872,6 +2873,18 @@ function replaceWritingUnit({ text, originRefs, unitId, expectedUnitRevision } =
   }
 }
 
+// 整理段落：一次可撤销事务，把“每行一段”的导入文本拆成真正段落。
+function normalizeParagraphs({ title = '' } = {}) {
+  const currentEditor = editor.value
+  if (!currentEditor || !props.editable) return { ok: false, reason: 'no-editor' }
+  const result = normalizeParagraphsTransaction(currentEditor.state, { title })
+  if (!result.tr) return { ok: true, changed: false, ...result, tr: undefined }
+  sealEditorHistoryGroup(currentEditor)
+  currentEditor.view.dispatch(result.tr.setMeta('writingInputOrigin', 'paragraph-normalize'))
+  sealEditorHistoryGroup(currentEditor)
+  return { ok: true, changed: true, splitParagraphs: result.splitParagraphs, strippedIndents: result.strippedIndents, removedTitle: result.removedTitle }
+}
+
 // 重写撤销/重做使用确切 schema-v3 单元快照，避免把目标 unitId 当成一次
 // “插入/删除”历史。事务不进入 PM history；页面 sidecar receipt 负责方向与持久化。
 function restoreWritingUnitSnapshot({ unitId, snapshot } = {}) {
@@ -3330,6 +3343,7 @@ defineExpose({
   insertMediaReference,
   insertWritingUnitBatch,
   replaceWritingUnit,
+  normalizeParagraphs,
   restoreWritingUnitSnapshot,
   insertDivider,
   undo,
@@ -3388,7 +3402,7 @@ defineExpose({
 }
 
 .writing-notebook-editor__surface .ProseMirror {
-  width: min(100%, 62em);
+  width: min(100%, var(--notebook-measure, 40em));
   min-height: 100%;
   margin: 0 auto;
   outline: none;
@@ -3636,6 +3650,17 @@ defineExpose({
 .writing-notebook-editor:not([data-block-boundaries="hidden"]) .ProseMirror > section[data-writing-unit].is-current-writing-unit::before {
   opacity: .55;
   border-color: var(--accent-primary);
+}
+.writing-notebook-editor[data-block-boundaries="current"] .ProseMirror > section[data-writing-unit]::before {
+  top: .45em;
+  bottom: auto;
+  height: 1.2em;
+  width: 2px;
+  border: 0;
+  border-radius: 1px;
+  background: var(--notebook-muted);
+  opacity: 0;
+  transition: opacity .16s ease;
 }
 .writing-notebook-editor[data-block-boundaries] .ProseMirror > section[data-writing-unit]::after {
   display: none;

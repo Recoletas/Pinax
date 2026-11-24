@@ -1,3 +1,5 @@
+import { resolvePlatformBridge } from '../services/platform/platformBridge.js'
+import { withWritingBooksLock } from '../services/storage/writingBooksLock.js'
 import { tr } from '../i18n/index.js'
 import { computed, onBeforeUnmount, onMounted, ref, unref, watch } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
@@ -48,7 +50,7 @@ export function useAuthoringPersistence({
     if (saveStatus.value === 'saving') return tr('保存中')
     if (saveStatus.value === 'unsaved') return tr('未保存')
     if (saveStatus.value === 'error') return tr('保存失败')
-    return tr('已保存')
+    return resolvePlatformBridge().platform === 'desktop' ? tr('已保存到本机应用') : tr('已保存')
   })
   const saveRescueVisible = computed(() => saveStatus.value === 'error' || Boolean(valueOf(writingRecoveryDraft)))
   const saveRescueText = computed(() => {
@@ -101,6 +103,35 @@ export function useAuthoringPersistence({
     if (writingRecoveryDraft) writingRecoveryDraft.value = null
   }
 
+  function runDocumentBoundary(action, ...args) {
+    const source = activeDocumentSaveScopeKey()
+    const apply = () => activeDocumentSaveScopeKey() === source && action(...args)
+    return withWritingBooksLock(apply)
+  }
+
+  function saveDocument(scopeKey) {
+    const commit = () => {
+      if (activeDocumentSaveScopeKey() !== scopeKey || saveStatus.value === 'saved') return
+      saveStatus.value = 'saving'
+      const saved = valueOf(activeDocument)
+        ? persistActiveDocument?.()?.ok === true
+        : persistChapter?.() === true
+      if (saved) clearSuccessfulRecoveryDraft()
+      else writeRecoveryDraft?.()
+      saveStatus.value = saved ? 'saved' : 'error'
+    }
+    // localStorage has no transaction spanning its separate get/set calls.
+    // Queue the whole read/merge/write across editor tabs on supporting hosts.
+    if (globalThis.navigator?.locks?.request) {
+      return withWritingBooksLock(commit).catch(() => {
+        if (activeDocumentSaveScopeKey() !== scopeKey) return
+        writeRecoveryDraft?.()
+        saveStatus.value = 'error'
+      })
+    }
+    commit()
+  }
+
   function onTitleChange() {
     if (canEditTitle && !canEditTitle()) return
     saveStatus.value = 'unsaved'
@@ -109,10 +140,7 @@ export function useAuthoringPersistence({
     const scheduledScopeKey = activeDocumentSaveScopeKey()
     titleSaveTimer = setTimeout(() => {
       titleSaveTimer = null
-      if (activeDocumentSaveScopeKey() !== scheduledScopeKey) return
-      saveStatus.value = 'saving'
-      const saved = persistChapter?.() === true
-      saveStatus.value = saved ? 'saved' : 'error'
+      void saveDocument(scheduledScopeKey)
     }, 500)
   }
 
@@ -126,14 +154,7 @@ export function useAuthoringPersistence({
     if (valueOf(pendingGhostAdoption)) return
     contentSaveTimer = setTimeout(() => {
       contentSaveTimer = null
-      if (activeDocumentSaveScopeKey() !== scheduledScopeKey) return
-      saveStatus.value = 'saving'
-      const document = valueOf(activeDocument)
-      const saved = document
-        ? persistActiveDocument?.()?.ok === true
-        : persistChapter?.() === true
-      if (saved) clearSuccessfulRecoveryDraft()
-      saveStatus.value = saved ? 'saved' : 'error'
+      void saveDocument(scheduledScopeKey)
     }, 1000)
   }
 
@@ -148,6 +169,17 @@ export function useAuthoringPersistence({
     if (!EXIT_GUARD_STATUSES.has(saveStatus.value)) return true
     writeRecoveryDraft?.()
     clearPendingDocumentSaveTimers()
+    // The browser cannot await a Web Lock during unload. The synchronous
+    // recovery write above survives termination; a surviving page completes
+    // its authoritative save through the same queue as a normal edit.
+    if (globalThis.navigator?.locks?.request) {
+      if (event?.type === 'beforeunload') {
+        event.preventDefault?.()
+        event.returnValue = ''
+      }
+      void saveDocument(activeDocumentSaveScopeKey())
+      return false
+    }
     const persisted = valueOf(activeDocument)
       ? persistActiveDocument?.()?.ok === true
       : (!valueOf(selectedChapterId) || persistChapter?.({ automaticHistory: false }) === true)
@@ -159,12 +191,14 @@ export function useAuthoringPersistence({
   }
 
   function handleVisibilityChange() {
-    if (document.visibilityState === 'hidden') handleAuthoringPageExit({ type: 'visibilitychange' })
+    if (document.visibilityState !== 'hidden' || !EXIT_GUARD_STATUSES.has(saveStatus.value)) return
+    writeRecoveryDraft?.()
+    if (!valueOf(pendingGhostAdoption) && !valueOf(blockPreview)) void saveDocument(activeDocumentSaveScopeKey())
   }
 
   function retrySaveFromRescue() {
     if (saveStatus.value === 'saving') return
-    persistChapter?.()
+    void saveDocument(activeDocumentSaveScopeKey())
   }
 
   function exportUnsavedManuscriptFromRescue() {
@@ -219,6 +253,12 @@ export function useAuthoringPersistence({
     if (EXIT_GUARD_STATUSES.has(saveStatus.value)) writeRecoveryDraft?.()
   })
 
+  function persistPendingDocument(whenNoChapter = () => true) {
+    if (saveStatus.value === 'saved') return true
+    if (valueOf(activeDocument)) return persistActiveDocument?.()?.ok === true
+    return valueOf(selectedChapterId) ? persistChapter?.() === true : whenNoChapter()
+  }
+
   function guardWorkspaceExit(to) {
     if (isNavigationBusy?.(to)) {
       notify?.(tr('请先完成或停止当前任务再切换页面'))
@@ -233,21 +273,16 @@ export function useAuthoringPersistence({
       return false
     }
     const outgoingBoundary = !valueOf(activeDocument) ? buildOutgoingBoundary?.() : null
-    if (saveStatus.value !== 'saved') {
-      const persisted = valueOf(activeDocument)
-        ? persistActiveDocument?.()?.ok === true
-        : (!valueOf(selectedChapterId) || persistChapter?.() === true)
-      if (!persisted) {
-        notify?.(tr('文档保存失败，已留在当前工作台'))
-        return false
-      }
+    if (!persistPendingDocument()) {
+      notify?.(tr('文档保存失败，已留在当前工作台'))
+      return false
     }
     if (outgoingBoundary) dispatchOutgoingBoundary?.(outgoingBoundary)
     cancelCopilot?.()
     if (valueOf(blockComposer)?.open) abandonBlockComposer?.({ restoreSelection: false })
     return true
   }
-  onBeforeRouteLeave(guardWorkspaceExit)
+  onBeforeRouteLeave(to => runDocumentBoundary(guardWorkspaceExit, to))
   onBeforeRouteUpdate((to) => {
     const bookId = typeof to.query.bookId === 'string' ? to.query.bookId : ''
     const book = bookId ? loadWritingBooks().find(item => String(item.id) === bookId) : null
@@ -263,11 +298,13 @@ export function useAuthoringPersistence({
     const changesBook = to.query.bookId && String(to.query.bookId) !== String(valueOf(selectedBookId) || '')
     const changesChapter = to.query.chapterId && String(to.query.chapterId) !== String(valueOf(selectedChapterId) || '')
     const changesExploration = String(to.query.explorationId || '') !== String(valueOf(activeDocument)?.id || '')
-    return changesBook || changesChapter || changesExploration ? guardWorkspaceExit(to) : true
+    return changesBook || changesChapter || changesExploration ? runDocumentBoundary(guardWorkspaceExit, to) : true
   })
 
   return Object.freeze({
     activeDocumentSaveScopeKey,
+    runDocumentBoundary,
+    persistPendingDocument,
     cancelContentSave,
     cancelRecoveryDraftSchedule,
     cancelTitleSave,

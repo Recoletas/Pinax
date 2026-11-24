@@ -235,6 +235,11 @@ export function createAuthoringNarrativeRun({
     const suppliedSession = request?.intent?.authoringRunSession || null
     if (suppliedSession) {
       const session = assertFrozenSession(suppliedSession, canonicalId)
+      const viewpoint = request?.intent?.turn?.viewpointCharacterId
+      if (session.sceneProjection.characterPerspective && viewpoint && viewpoint !== session.sceneProjection.viewpointCharacter?.id) {
+        throw typedError(AUTHORING_NARRATIVE_RUN_ERROR_CODES.SESSION_INVALID,
+          'character viewpoint changed after session preparation', { reason: 'session-viewpoint-mismatch', taskId: canonicalId })
+      }
       const selectedDirection = request?.intent?.turn?.selectedDirection || null
       if (selectedDirection
         && String(selectedDirection.sessionFingerprint || '') !== String(session.manifest.fingerprint || '')) {
@@ -278,7 +283,11 @@ export function createAuthoringNarrativeRun({
     if (!prepared?.ok) {
       throw typedError(
         AUTHORING_NARRATIVE_RUN_ERROR_CODES.PREPARE_FAILED,
-        `authoring run session preparation failed: ${prepared?.reason || 'unknown'}`,
+        ({
+          'authoring-viewpoint-binding-unavailable': '请核对当前场景、视角人物和本书绑定的世界书。',
+          'authoring-viewpoint-knowledge-unavailable': '读取人物认知失败，请重试。',
+          'authoring-viewpoint-context-excluded': '本次推演无法容纳人物视角资料，请检查所选上下文或缩短待推演段落。'
+        })[prepared?.reason] || `authoring run session preparation failed: ${prepared?.reason || 'unknown'}`,
         { reason: prepared?.reason || 'session-prepare-failed', taskId: canonicalId }
       )
     }

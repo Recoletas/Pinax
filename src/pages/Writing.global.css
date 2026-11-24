@@ -1826,6 +1826,13 @@
   padding-top: 14px;
 }
 
+/* 章节标题与正文同列：宽度跟随正文行长（40 字 × 当前字号）。 */
+.theme-legacy .writing-page .wall__dossier-head.wall__chapter-head {
+  box-sizing: border-box;
+  width: min(var(--manuscript-measure, 880px), 100%);
+  padding-inline-start: 12px; /* 对齐写作块的 12px 内边距 */
+}
+
 .theme-legacy .writing-page .editor-container {
   padding-top: 24px;
 }

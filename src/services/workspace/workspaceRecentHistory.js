@@ -1,6 +1,6 @@
 import { STORAGE_KEYS } from '../../composables/useStorage.js'
 import { createBrowserStorageRepository } from '../storage/browserStorageRepository.js'
-import { loadWritingBooks, subscribeWritingBooks } from '../writing/writingBooksRepository.js'
+import { loadWritingBooksSnapshot, subscribeWritingBooks } from '../writing/writingBooksRepository.js'
 import { PROJECT_SURFACE_ROUTE_NAMES, resolveRouteIntent } from './workspaceTabContract.js'
 
 export const WORKSPACE_RECENT_VERSION = 1
@@ -109,7 +109,7 @@ export function workspaceRecentSurfaceLabel(entry) {
   return WORKSPACE_RECENT_SURFACE_LABELS[entry.surface] || '工作区'
 }
 
-export function createWorkspaceRecentHistory({ repository = null, readBooks = loadWritingBooks, clock = Date.now } = {}) {
+export function createWorkspaceRecentHistory({ repository = null, readBooks = loadWritingBooksSnapshot, clock = Date.now } = {}) {
   let entries = []
   let persistenceNotice = ''
   let hydrated = false
@@ -241,14 +241,14 @@ export function recordWorkspaceRecentRoute(route) {
   return recordWorkspaceRecentLocation({ bookId: route.query?.bookId, surface, route })
 }
 
-export function resolveRecentBookId(books = loadWritingBooks()) {
+export function resolveRecentBookId(books = loadWritingBooksSnapshot()) {
   const valid = new Set(books.map(book => String(book.id)))
   return getWorkspaceRecentSnapshot().entries.find(entry => valid.has(entry.bookId))?.bookId || ''
 }
 
 // Resolution reads the owning repository; it never substitutes a different
 // chapter/page/panel. Imported content and media payloads are not copied out.
-export async function resolveWorkspaceRecentEntry(raw, { books = loadWritingBooks(), comicPages = null } = {}) {
+export async function resolveWorkspaceRecentEntry(raw, { books = loadWritingBooksSnapshot(), comicPages = null } = {}) {
   const entry = normalizeLocation(raw, raw?.lastUsedAt)
   if (!entry) return { available: false, reason: 'invalid-location' }
   const book = books.find(item => String(item.id) === entry.bookId)
@@ -282,7 +282,7 @@ export async function resolveWorkspaceRecentEntry(raw, { books = loadWritingBook
 }
 
 export async function resolveWorkspaceRecentEntries(entries) {
-  const books = loadWritingBooks()
+  const books = loadWritingBooksSnapshot()
   let comicPages = null
   if (entries.some(entry => entry.object?.kind === 'comic-page')) {
     try {

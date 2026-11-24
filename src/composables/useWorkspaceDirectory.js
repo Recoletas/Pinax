@@ -2,7 +2,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 // Explorer visibility belongs to the shell, independently of document owners.
 // The mobile sheet deliberately does not share desktop visibility preferences.
-export function useWorkspaceDirectory({ state, scope }) {
+export function useWorkspaceDirectory({ state, scope, libraryVisible }) {
   const preferences = reactive({})
   let prepareOpen = null
   function bindPrepare(handler) { prepareOpen = handler; return () => { if (prepareOpen === handler) prepareOpen = null } }
@@ -31,14 +31,11 @@ export function useWorkspaceDirectory({ state, scope }) {
   })
   const width = computed(() => preference(contextKey.value).width)
   function resize(value, commit = true) { preference(contextKey.value).width = Math.min(360, Math.max(200, Number(value) || 248)); if (commit) persist(contextKey.value) }
-  const desktopExpanded = ref(preference(contextKey.value).expanded)
+  const libraryExpanded = ref(false)
+  watch(libraryVisible, () => { libraryExpanded.value = false }, { flush: 'sync' })
   function setDesktopExpanded(value) {
-    desktopExpanded.value = Boolean(value)
-    // Remember the last shell visibility on Home as well. Returning Home does
-    // not restore a separate, potentially closed snapshot over the live shell.
-    for (const key of new Set([bookKey.value, ''])) {
-      preference(key).expanded = desktopExpanded.value; persist(key)
-    }
+    preference(bookKey.value).expanded = Boolean(value)
+    persist(bookKey.value)
   }
   const documentActive = computed(() => !state.hidden && state.views.some(view =>
     view.id === state.mainModuleId && ['chapter', 'exploration'].includes(view.resource.type)))
@@ -48,9 +45,10 @@ export function useWorkspaceDirectory({ state, scope }) {
       setDesktopExpanded(true)
     }
   }, { immediate: true })
-  const expanded = computed(() => state.narrow ? state.directoryOpen : desktopExpanded.value)
+  const expanded = computed(() => libraryVisible.value ? libraryExpanded.value : state.narrow ? state.directoryOpen : preference(bookKey.value).expanded)
   function setExpanded(value) {
-    if (state.narrow) state.directoryOpen = Boolean(value)
+    if (libraryVisible.value) libraryExpanded.value = Boolean(value)
+    else if (state.narrow) state.directoryOpen = Boolean(value)
     else setDesktopExpanded(value)
   }
   function select(value) {

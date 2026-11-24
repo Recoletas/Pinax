@@ -86,7 +86,8 @@ export function projectExperienceSession({
         viewpointCharacterId: snapshot.viewpointCharacterId || '',
         time: {
           label: snapshot.time?.label || '',
-          period: snapshot.time?.period || ''
+          period: snapshot.time?.period || '', storyAt: snapshot.time?.storyAt,
+          storyClock: snapshot.time?.storyClock, clockLabel: snapshot.time?.clockLabel
         },
         source: 'legacy-import'
       })

@@ -1,26 +1,12 @@
 import Dexie from 'dexie'
 
-// Test fixture (AX04/XA-G05): declares a FUTURE schema version (v3) of the
-// ledger database so a real two-connection blocked-upgrade can be exercised
-// in the browser. Served by the dev server under /scripts/fixtures/; never
-// imported by production code.
-export function openFutureVersion(name) {
+import { LEDGER_V4_TABLES } from '../../../src/services/memory/ledger/ledgerDb.js'
+
+// Seed the last released shape for the real blocked v4 → v5 upgrade.
+export async function openVersion4(name) {
   const db = new Dexie(name)
-  db.version(1).stores({ revisions: 'id, candidateId' })
-  db.version(2).stores({
-    revisions: 'id, candidateId',
-    evidenceSnapshots: 'id, scopeKey, sourceId, [scopeKey+sourceId]',
-    factProposals: 'id, scopeKey, status, fingerprint, [scopeKey+status]',
-    factVersions: 'id, scopeKey, factKey, [scopeKey+factKey], [scopeKey+subjectKey], [scopeKey+recordedSeq]',
-    factDecisions: 'id, scopeKey, commandId, [scopeKey+recordedSeq]',
-    rejectionMarks: 'id, scopeKey, fingerprint, [scopeKey+fingerprint]',
-    ledgerMeta: 'id',
-    turnReceipts: 'receiptId, scopeKey, commandId, [scopeKey+archivedSeq]'
-  })
-  db.version(3).stores({
-    revisions: 'id, candidateId',
-    probeFuture: 'id'
-  })
+  db.version(4).stores(LEDGER_V4_TABLES)
+  await db.open()
   return db
 }
 

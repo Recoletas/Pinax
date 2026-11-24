@@ -16,7 +16,7 @@ try {
     const check = (condition, message) => { if (!condition) throw new Error(message) }
     const ledgerDb = await import('/src/services/memory/ledger/ledgerDb.js')
     const opened = await ledgerDb.openLedgerDb()
-    check(opened.ok && opened.db.verno === 4, 'history must coexist with current ledger schema')
+    check(opened.ok && opened.db.verno === 12, 'history must coexist with current ledger schema')
     ledgerDb.closeLedgerDb(opened.db)
     const base = { id: 'history-smoke', content: '钟楼尚未开放。', scope: 'project', scopeId: 'book-smoke',
       sourceRefs: ['chapter:smoke:unit:1'], sourceRevision: 'r1' }
@@ -80,6 +80,12 @@ try {
   // 20260918 白日 UI polish 后欢迎页按钮只保留主文案；快捷操作与侧栏同名，限定容器。
   await page.locator('.library-quick-actions').getByRole('button', { name: '备份与恢复' }).click()
   await page.getByRole('tab', { name: '记忆与历史' }).click()
+  const activity = page.getByRole('region', { name: '自动记录的记忆修订' })
+  await activity.locator('article').nth(29).waitFor()
+  assert.equal(await activity.locator('article').count(), 30)
+  await activity.getByRole('button', { name: '显示更多' }).click()
+  await activity.locator('article').nth(59).waitFor()
+  assert.equal(await activity.locator('article').count(), 60)
   // c445dd4 起工作区按视图分页签；来源与修订入口在「AI 候选」视图。
   await page.getByRole('button', { name: 'AI 候选' }).click()
   await page.getByRole('button', { name: '查看来源与修订' }).click()

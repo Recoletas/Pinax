@@ -56,6 +56,7 @@
 </template>
 
 <script setup>
+import { sceneTimeLabel } from '../../services/agents/authoring/authoringSceneAnchors.js'
 import { tr } from '../../i18n/index.js'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { buildAuthoringTurnIntent } from '../../services/agents/authoring/authoringTurnContract.js'
@@ -119,7 +120,7 @@ const sceneContextSummary = computed(() => {
     ...(projection.presentCharacters || [])
   ].map((person) => person?.name).filter((name, index, values) => name && values.indexOf(name) === index)
   return [
-    projection.time?.label,
+    sceneTimeLabel(projection.time, tr('故事序号')),
     projection.location?.name,
     peopleNames.slice(0, 3).join('、')
   ].filter(Boolean).join(' · ')

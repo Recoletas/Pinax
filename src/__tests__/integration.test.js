@@ -19,6 +19,9 @@ import ComicStageWorkbench from '../components/media/ComicStageWorkbench.vue'
 import ImageGenerationWorkbench from '../components/media/ImageGenerationWorkbench.vue'
 import WorkspacePaneSwitch from '../components/workbench/WorkspacePaneSwitch.vue'
 import ContourField from '../components/workbench/ContourField.vue'
+import MapPlaceManuscript from '../components/geography/MapPlaceManuscript.vue'
+import { COMPOSABLE_WORKSPACE_CONTEXT } from '../composables/useComposableWorkspace.js'
+import { loadWritingBooks, saveWritingBooks } from '../services/writing/writingBooksRepository.js'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import NarrativeTurn from '../components/experience/NarrativeTurn.vue'
 import WritingNotebookEditor from '../components/writing/WritingNotebookEditor.vue'
@@ -2828,11 +2831,13 @@ describe('Media services', () => {
         await nextTick()
         document.querySelectorAll('.model-picker-menu [role=option]')[1].click()
         expect(menu.emitted('update:modelValue').at(-1)).toEqual([compatConfig.id])
+        useSettingsPopup().openWorldModel('current-novel')
         await menu.get('.model-picker-trigger').trigger('click')
         await nextTick()
         document.querySelector('.model-picker-manage').click()
         expect(useSettingsPopup().activeSection.value).toBe('models')
         expect(useSettingsPopup().modelKind.value).toBe('text')
+        expect(useSettingsPopup().worldModelBookId.value).toBe('')
       } finally { menu.unmount(); useSettingsPopup().close() }
 
     } finally {
@@ -5139,6 +5144,28 @@ describe('两本书 / 两个世界书身份隔离', () => {
     expect(result.kind).toBe('cancelled')
     expect(result.wroteNothing).toBe(true)
     expect(result.bindingReceipt).toBeUndefined()
+    const entry = { id: 'port', type: 'location', name: '旧港' }
+    const document = createWritingDocument('许遥站在旧港。')
+    const chapter = { id: 'harbour', title: '夜航', editorDocument: document, sceneAnchors: [{
+      unitId: document.content[0].attrs.unitId, worldbookId: 'world', locationId: entry.id, time: { label: '夜里' }
+    }] }
+    const previousBooks = loadWritingBooks()
+    saveWritingBooks([{ id: 'story', worldbookId: 'world', chapters: [chapter] }])
+    const openAt = vi.fn()
+    const panel = mount(MapPlaceManuscript, { props: { bookId: 'story', worldbook: { id: 'world', entries: [entry] }, entryId: entry.id },
+      global: { provide: { [COMPOSABLE_WORKSPACE_CONTEXT]: { openAt } } } })
+    try {
+      expect(panel.get('.scene-list button').text()).toContain('夜航')
+      await panel.get('.scene-list button').trigger('click')
+      expect(openAt).toHaveBeenCalledWith(expect.objectContaining({ bookId: 'story', id: 'harbour', nodeId: document.content[0].content[0].attrs.nodeId }), 'main')
+      expect(panel.get('summary').text()).toContain('正文提及')
+      await panel.setProps({ bookId: 'other-book' })
+      expect(panel.find('section').exists()).toBe(false)
+    } finally {
+      panel.unmount()
+      saveWritingBooks(previousBooks)
+    }
+
   })
 })
 

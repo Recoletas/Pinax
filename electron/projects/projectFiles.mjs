@@ -1,5 +1,6 @@
+import { Buffer } from 'node:buffer'
 import { createHash } from 'node:crypto'
-import { mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises'
+import { link, mkdir, open, readdir, readFile, rename, rm } from 'node:fs/promises'
 import { dirname, join, posix, relative, sep } from 'node:path'
 import { DESKTOP_ERROR_CODES } from '../../shared/desktopProjectContract.js'
 import { syncDirectory } from './fsDurability.mjs'
@@ -63,6 +64,26 @@ export async function stageProjectText(root, stagedPath, text) {
   }
 }
 
+export async function publishNewProjectText(root, relativePath, stagedPath, text) {
+  const target = await resolveProjectPath(root, relativePath)
+  const staged = await resolveProjectPath(root, stagedPath, { allowPinax: true })
+  const content = await stageProjectText(root, stagedPath, text)
+  try {
+    await mkdir(dirname(target), { recursive: true })
+    try {
+      await link(staged, target)
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+      const existing = await readProjectText(root, relativePath)
+      if (existing.contentHash !== content.contentHash) throw desktopError(DESKTOP_ERROR_CODES.STALE_REVISION, 'A different chapter file already exists')
+    }
+    await syncDirectory(dirname(target))
+    return content
+  } finally {
+    await rm(staged, { force: true })
+  }
+}
+
 export async function atomicReplaceText(root, input, adapter = {}) {
   const move = adapter.move || rename
   const replace = adapter.replace || rename
@@ -72,6 +93,12 @@ export async function atomicReplaceText(root, input, adapter = {}) {
   try {
     await mkdir(dirname(target), { recursive: true })
     await move(staged, sibling)
+    // Staging can take time. Check again at the publication boundary so an
+    // external edit made while the staged file was being written survives.
+    const beforeReplace = await readProjectText(root, input.relativePath)
+    if (beforeReplace.contentHash !== input.expectedHash || beforeReplace.byteLength !== input.expectedBytes) {
+      throw desktopError(DESKTOP_ERROR_CODES.STALE_REVISION, 'Project text changed during save', { relativePath: input.relativePath })
+    }
     await replace(sibling, target)
     await syncDirectory(dirname(target))
   } catch (error) {

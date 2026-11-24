@@ -253,7 +253,9 @@ export async function loadWorldbookFromFiles(projectRoot, worldbookId) {
       error: { code: 'WORLDBOOK_ID_MISMATCH', message: `项目世界书归属另一世界书（${fileId}），已拒绝读入` }
     }
   }
-  if (response.body.worldbookFingerprint) loadedWorldbookFingerprints.set(`${root}:${requestedId}`, response.body.worldbookFingerprint)
+  const warnings = ensureStringArray(response.body.warnings)
+  if (warnings.some(message => !message.includes('目录内未找到'))) loadedWorldbookFingerprints.delete(`${root}:${requestedId}`)
+  else if (response.body.worldbookFingerprint) loadedWorldbookFingerprints.set(`${root}:${requestedId}`, response.body.worldbookFingerprint)
   return {
     ok: true,
     worldbook,
@@ -403,11 +405,15 @@ export async function saveWorldbookToFiles(projectRoot, worldbook) {
     domains: ['worldbook'],
     worldbook: buildSyncWorldbookPayload(worldbook)
   }
-  const state = await fetchJsonWithTimeout(`${API_BASE}/sync-state?bookId=${encodeURIComponent(target.bookId)}`)
-  if (!state?.ok || !state.body?.ok) return { ok: false, error: { code: 'SYNC_STATE_UNAVAILABLE', message: '项目同步状态无法读取，尚未写入。' } }
   const expectedFingerprint = loadedWorldbookFingerprints.get(`${root}:${worldbook.id}`)
+  payload.expectedProjectId = target.projectId
   if (expectedFingerprint) payload.expectedWorldbookFingerprint = expectedFingerprint
-  payload.baseRevision = state.body.revision
+  else {
+    // A first push can establish absent files. Existing changed records need
+    // the fingerprint of the version actually loaded by the caller.
+    payload.baseRevision = 0
+    payload.source = 'browser-mirror'
+  }
   payload.requestId = `worldbook_${Date.now()}_${Math.random().toString(36).slice(2)}`
   const response = await fetchJsonWithTimeout(`${API_BASE}/sync`, { method: 'POST', body: payload })
   if (!response) return { ok: false, error: { code: 'SERVER_UNREACHABLE', message: 'localmirror 服务不可达或超时' } }

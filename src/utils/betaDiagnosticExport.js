@@ -1,3 +1,4 @@
+import { readStoredText } from '../services/storage/writingStorageCodec.js'
 import { STORAGE_KEYS } from '../composables/useStorage.js'
 import { downloadJsonFile, timestampForFilename } from './download.js'
 import { buildInfo } from './buildInfo.js'
@@ -38,7 +39,7 @@ export async function buildBetaDiagnosticReport({
   windowRef = globalThis.window,
   now = () => new Date()
 } = {}) {
-  const books = parseArray(storage?.getItem?.(STORAGE_KEYS.WRITING_BOOKS))
+  const books = parseArray(storage ? readStoredText(storage, STORAGE_KEYS.WRITING_BOOKS) : null)
   const chapterCount = books.reduce((total, book) => total + (Array.isArray(book?.chapters) ? book.chapters.length : 0), 0)
   let estimate = null
   let persisted = null

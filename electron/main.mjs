@@ -1,5 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron'
-import { dirname, join } from 'node:path'
+import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron'
+import { dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createCacheManager } from './cache/cacheManager.mjs'
 import { registerProjectHandlers } from './ipc/registerProjectHandlers.mjs'
@@ -36,6 +36,11 @@ export function createMainWindow() {
     height: 840,
     minWidth: 390,
     minHeight: 620,
+    autoHideMenuBar: true,
+    ...(process.platform === 'win32' ? {
+      titleBarStyle: 'hidden',
+      titleBarOverlay: { color: '#f7f6f3', symbolColor: '#292925', height: 48 }
+    } : {}),
     webPreferences: {
       preload: join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -60,10 +65,20 @@ export function createMainWindow() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform !== 'darwin') Menu.setApplicationMenu(null)
+  ipcMain.on(DESKTOP_CHANNELS.WINDOW_APPEARANCE, (event, dark) => {
+    if (process.platform !== 'win32' || event.senderFrame !== mainWindow?.webContents.mainFrame ||
+        !isTrustedApplicationUrl(event.senderFrame?.url)) return
+    mainWindow.setTitleBarOverlay({ color: dark ? '#242421' : '#f7f6f3', symbolColor: dark ? '#e4e2dd' : '#292925', height: 48 })
+  })
   session.defaultSession.setPermissionCheckHandler(() => false)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false))
-  mainWindow = createMainWindow()
   projectService = createProjectService()
+  const projectDirectory = process.argv.find(arg => arg.startsWith('--pinax-project='))?.slice('--pinax-project='.length)
+  if (projectDirectory && isAbsolute(projectDirectory)) {
+    try { await projectService.open({ directory: projectDirectory, mode: 'read-write' }) }
+    catch (error) { dialog.showErrorBox('无法打开指定的 Pinax 项目', error.message) }
+  }
   migrationService = createLegacyMigrationService({
     dialog,
     getWindow: () => mainWindow,
@@ -85,6 +100,7 @@ app.whenReady().then(async () => {
     cacheManager
   })
 
+  mainWindow = createMainWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow()
   })

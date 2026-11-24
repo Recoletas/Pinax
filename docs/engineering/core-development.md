@@ -39,6 +39,6 @@ npm run core:update -- /path/to/pinax-core
 
 ## 当前范围
 
-Web 与 Pinix 都提供 `core:dev`、`core:restore`、`core:status`、`core:update`，使用同一份工具逻辑。Core 目前为 0.16.0，仍用仓库内固定 tarball 分发；私有 npm registry 尚未配置。本轮不更新 Next，也不自动推送、发布或部署。
+Web 与 Pinix 都提供 `core:dev`、`core:restore`、`core:status`、`core:update`，使用同一份工具逻辑。本仓库的小说世界模型使用 Core 0.45.0，仍用仓库内固定 tarball 分发；私有 npm registry 尚未配置。本轮不更新 Next，也不自动推送、发布或部署。
 
 `npm run core:workflow:smoke` 使用临时 Core 仓库和两个临时宿主验证开发连接、Vite 读取、固定版本隔离、恢复、更新与 npm ci，不碰真实稿件或用户服务。

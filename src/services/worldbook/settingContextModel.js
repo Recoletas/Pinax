@@ -29,7 +29,8 @@ export function settingContext({ book, worldbook, entry, chapterId = '' } = {}) 
       return {
         id: `${chapter.id}:${anchor.id}`, chapterId: text(chapter.id), chapterTitle: chapter.title || '未命名章节',
         unitId: anchor.unitId, nodeId: node?.attrs?.nodeId || '', start: 0, end: term.length, term,
-        time: anchor.time.label, location: location?.type === 'location' ? location : null,
+        time: anchor.time.label, storyAt: anchor.time.storyAt ?? null, storyClock: anchor.time.storyClock ?? null,
+        location: location?.type === 'location' ? location : null,
         people: anchor.presentCharacterIds.map(personId => byId.get(personId)).filter(person => person?.type === 'character'),
         planned: anchor.plannedCharacterIds.map(personId => byId.get(personId)).filter(person => person?.type === 'character')
       }

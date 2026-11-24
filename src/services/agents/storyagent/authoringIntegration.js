@@ -7,8 +7,9 @@ import { compileLexiconPrompt } from '../../../../shared/lexiconFileContract.js'
 import { readLocalRuleFilesForBook, readLocalLexiconForBook } from '../../localMirrorSettings.js'
 import { assertAssistantPermission, normalizeAssistantPermission } from '../../../../shared/assistantPermission.js'
 import { requestAssistantPolicy } from './assistantPolicyClient.js'
+import { withWritingBooksLock } from '../../storage/writingBooksLock.js'
 import { withAssistantEditLock } from '../../storage/assistantEditLock.js'
-import { persistAssistantEdits } from '../../storage/assistantEditJournal.js'
+import { persistAssistantEdits, withAssistantJournalLock } from '../../storage/assistantEditJournal.js'
 import { getItem, STORAGE_KEYS } from '../../../composables/useStorage.js'
 import { buildAssistantWorkspaceItems } from './assistantWorkspaceContext.js'
 import { createStoryAgentEngine } from './agentEngine.js'
@@ -146,7 +147,16 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
       const { applyAssistantProposal, selectAssistantProposalChanges } = await import('./assistantEditTransaction.js')
       const rawReceipt = getItem(`assistant_edit_receipt:${proposal.id}`, null)
       const savedReceipt = rawReceipt ? resolveAssistantEditReview(rawReceipt) : null
-      if (savedReceipt && JSON.stringify(savedReceipt.changes) !== JSON.stringify(proposal.changes)) return { ok: false, error: '这组修改已在其他窗口处理，请刷新后继续。' }
+      const receiptStillCurrent = () => JSON.stringify(getItem(`assistant_edit_receipt:${proposal.id}`)) === JSON.stringify(rawReceipt)
+      const receiptChanged = () => ({ ok: false, error: '这组修改已在其他窗口处理，请刷新后继续。' })
+      const saveReview = next => withAssistantJournalLock(() => {
+        if (String(getBook?.()?.id) !== proposal.bookId) return { ok: false, error: '作品已切换，请返回原作品。' }
+        if (!receiptStillCurrent()) return receiptChanged()
+        persistAssistantEdits([{ key: `assistant_edit_receipt:${proposal.id}`, after: next }], proposal.id)
+        Object.assign(proposal, next)
+        return { ok: true, status: next.status, ...(next.reviewStatus ? { reviewStatus: next.reviewStatus } : {}) }
+      })
+      if (savedReceipt && JSON.stringify(savedReceipt.changes) !== JSON.stringify(proposal.changes)) return receiptChanged()
       const resolvingConflict = acknowledge?.action === 'resolve-conflict'
       let executionProposal = proposal
       if (resolvingConflict && acknowledge.reconsiderDiscarded) {
@@ -160,25 +170,18 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
         try {
           next = acknowledgeAssistantReview({ ...proposal, reviewedTargets: savedReceipt?.reviewedTargets || proposal.reviewedTargets || [] }, acknowledge)
         } catch (error) { return { ok: false, error: error.message } }
-        persistAssistantEdits([{ key: `assistant_edit_receipt:${proposal.id}`, after: next }], proposal.id)
-        Object.assign(proposal, next)
-        return { ok: true, status: next.status, ...(next.reviewStatus ? { reviewStatus: next.reviewStatus } : {}) }
+        return saveReview(next)
       }
       if (discard) {
         const result = applyAssistantProposal(proposal, { book: getBook(), worldbook: getWorldbook(), discard: true, changeIds })
         const next = { ...proposal, changes: result.proposalChanges, status: result.status }
-        persistAssistantEdits([{ key: `assistant_edit_receipt:${proposal.id}`, after: next }], proposal.id)
-        Object.assign(proposal, next)
-        return { ok: true, status: next.status }
+        return saveReview(next)
       }
       const selectedChanges = undo ? (proposal.receipt?.changes || []).filter(change => !changeIds || changeIds.includes(change.changeId)) : selectAssistantProposalChanges(executionProposal, changeIds)
-      const touchesChapter = selectedChanges.some(change => change.kind === 'chapter')
-      const persisted = (getItem(STORAGE_KEYS.WRITING_BOOKS, []) || []).find(item => String(item.id) === proposal.bookId)
-      if (touchesChapter && persisted && JSON.stringify(persisted.chapters) !== JSON.stringify(getBook()?.chapters)) return { ok: false, error: '正文已在其他窗口修改，请刷新后继续。' }
-      if (touchesChapter && !persistCurrent?.()) return { ok: false, error: '当前编辑尚未保存，请先处理正文草稿。' }
       const book = getBook?.()
       if (String(book?.id) !== proposal.bookId) return { ok: false, error: '作品已切换，请返回原作品。' }
       if ((!undo && !['pending', 'partial'].includes(executionProposal.status)) || (undo && !proposal.receipt?.changes?.length)) return { ok: false, error: '建议状态已变化。' }
+      const authorized = currentPermission
       if (!undo && !discard) {
         if (!currentPermission || currentPermission.sessionId !== proposal.permission?.sessionId) return { ok: false, error: '请在原会话重新授权后采用修改。' }
         const policy = await requestAssistantPolicy('check', currentPermission)
@@ -186,62 +189,76 @@ export function createAuthoringStoryAgent({ projectId, getBook, getChapter, getW
         const selected = selectAssistantProposalChanges(executionProposal, changeIds)
         assertAssistantPermission(policy, selected, proposal.bookId)
       }
-      // Re-read after the policy request; author edits may have occurred while awaiting it.
-      if (touchesChapter && !persistCurrent?.()) return { ok: false, error: '当前稿件尚未保存。' }
+      let resolveConflicts
       if (resolvingConflict) {
-        const resolutionPermission = currentPermission
-        const { resolveAssistantConflicts } = await import('./assistantEditConflict.js')
-        if (!resolutionPermission || currentPermission !== resolutionPermission) return { ok: false, error: '授权已变化，请重新确认权限后保存。' }
         if (undo || discard) return { ok: false, error: '冲突处理不能与撤销同时执行。' }
-        if (String(getBook?.()?.id) !== proposal.bookId) return { ok: false, error: '作品已切换，未写入修改。' }
-        if (touchesChapter && !persistCurrent?.()) return { ok: false, error: '当前稿件尚未保存。' }
-        executionProposal = resolveAssistantConflicts(executionProposal, acknowledge.resolutions, { book: getBook(), worldbook: getWorldbook() }, changeIds)
+        resolveConflicts = (await import('./assistantEditConflict.js')).resolveAssistantConflicts
       }
-      const result = applyAssistantProposal(executionProposal, { book: getBook(), worldbook: getWorldbook(), undo, discard, changeIds })
-      const nextBooks = (getItem(STORAGE_KEYS.WRITING_BOOKS, null) || readBooks()).map(item => String(item.id) === proposal.bookId ? result.book : item)
-      const usesWorldbook = (undo ? selectedChanges : result.changes).some(change => change.kind === 'worldbook')
-      const undoneIds = new Set(selectedChanges.map(change => change.changeId))
-      const receipt = { proposalId: proposal.id, changes: undo ? (proposal.receipt?.changes || []).filter(change => !undoneIds.has(change.changeId)) : [...(proposal.receipt?.changes || []), ...result.changes], createdWorldbook: result.createdWorldbook || proposal.receipt?.createdWorldbook, worldbookId: result.book.worldbookId, adoptedAt: undo ? proposal.receipt.adoptedAt : Date.now() }
-      const reviewedTargets = (savedReceipt?.reviewedTargets || proposal.reviewedTargets || []).filter(key => !result.changes.some(change => key === `${change.kind}:${change.targetId}`))
-      const nextProposal = { ...executionProposal, changes: result.proposalChanges, status: result.status, receipt, reviewedTargets }
-      const writesBook = selectedChanges.some(change => ['chapter', 'outline'].includes(change.kind)) || String(result.book.worldbookId || '') !== String(getBook()?.worldbookId || '')
-      const writes = writesBook ? [{ key: STORAGE_KEYS.WRITING_BOOKS, after: nextBooks }] : []
-      if (usesWorldbook) {
-        if (result.worldbook) result.worldbook.pendingFileSync = true
-        const id = result.worldbook?.id || proposal.receipt?.worldbookId || proposal.worldbookId
-        writes.push({ key: `worldbook_${id}`, after: result.worldbook })
-        const index = (getItem('worldbooks_index', []) || []).filter(item => String(item.id) !== String(id))
-        if (result.worldbook) index.push({ id, name: result.worldbook.name, entryCount: result.worldbook.entries.length, updatedAt: result.worldbook.updatedAt })
-        writes.push({ key: 'worldbooks_index', after: index })
-      }
-      writes.push({ key: `assistant_edit_receipt:${proposal.id}`, after: nextProposal })
-      if (!undo && protectChanges?.(result.protectionSnapshots, proposal.id) === false) return { ok: false, error: '修改前的版本未能保存，建议已保留。' }
-      persistAssistantEdits(writes, proposal.id)
-      Object.assign(proposal, nextProposal)
-      if (writesBook) {
-        publishRepository?.(nextBooks)
-        publishBooks(nextBooks, this.destination().chapterId || result.changes.find(change => change.kind === 'chapter' && change.created)?.targetId || '')
-      }
-      if (usesWorldbook) publishWorldbook?.(result.worldbook)
-      return { ok: true, receipt, status: proposal.status }
+      return withAssistantJournalLock(() => {
+        if (String(getBook?.()?.id) !== proposal.bookId || (!undo && currentPermission !== authorized)) {
+          return { ok: false, error: '授权或作品已变化，修改未应用。' }
+        }
+        if (!receiptStillCurrent()) return receiptChanged()
+        const mayPublishBook = selectedChanges.some(change => change.kind === 'chapter' || change.kind === 'outline')
+          || !book.worldbookId || (undo && proposal.receipt?.createdWorldbook)
+        if (mayPublishBook && !persistCurrent?.()) return { ok: false, error: '当前稿件尚未保存。' }
+        const latest = readBooks()
+        const targetBook = latest.find(item => String(item.id) === proposal.bookId)
+        if (!targetBook) return { ok: false, error: '作品已移除，未写入修改。' }
+        const linked = targetBook.worldbookId && (readWorldbookSnapshot ? readWorldbookSnapshot(targetBook.worldbookId) : getWorldbook?.())
+        const target = { book: targetBook, worldbook: linked && String(linked.id) === String(targetBook.worldbookId) ? linked : null }
+        if (resolveConflicts) executionProposal = resolveConflicts(executionProposal, acknowledge.resolutions, target, changeIds)
+        const result = applyAssistantProposal(executionProposal, { ...target, undo, discard, changeIds })
+        const nextBooks = latest.map(item => String(item.id) === proposal.bookId ? result.book : item)
+        const usesWorldbook = (undo ? selectedChanges : result.changes).some(change => change.kind === 'worldbook')
+        const undoneIds = new Set(selectedChanges.map(change => change.changeId))
+        const receipt = { proposalId: proposal.id, changes: undo ? (proposal.receipt?.changes || []).filter(change => !undoneIds.has(change.changeId)) : [...(proposal.receipt?.changes || []), ...result.changes], createdWorldbook: result.createdWorldbook || proposal.receipt?.createdWorldbook, worldbookId: result.book.worldbookId, adoptedAt: undo ? proposal.receipt.adoptedAt : Date.now() }
+        const reviewedTargets = (savedReceipt?.reviewedTargets || proposal.reviewedTargets || []).filter(key => !result.changes.some(change => key === `${change.kind}:${change.targetId}`))
+        const nextProposal = { ...executionProposal, changes: result.proposalChanges, status: result.status, receipt, reviewedTargets }
+        const writesBook = selectedChanges.some(change => ['chapter', 'outline'].includes(change.kind)) || String(result.book.worldbookId || '') !== String(targetBook.worldbookId || '')
+        const writes = writesBook ? [{ key: STORAGE_KEYS.WRITING_BOOKS, after: nextBooks }] : []
+        if (usesWorldbook) {
+          if (result.worldbook) result.worldbook.pendingFileSync = true
+          const id = result.worldbook?.id || proposal.receipt?.worldbookId || proposal.worldbookId
+          writes.push({ key: `worldbook_${id}`, after: result.worldbook })
+          const index = (getItem('worldbooks_index', []) || []).filter(item => String(item.id) !== String(id))
+          if (result.worldbook) index.push({ id, name: result.worldbook.name, entryCount: result.worldbook.entries.length, updatedAt: result.worldbook.updatedAt })
+          writes.push({ key: 'worldbooks_index', after: index })
+        }
+        writes.push({ key: `assistant_edit_receipt:${proposal.id}`, after: nextProposal })
+        if (!undo && protectChanges?.(result.protectionSnapshots, proposal.id) === false) return { ok: false, error: '修改前的版本未能保存，建议已保留。' }
+        persistAssistantEdits(writes, proposal.id)
+        Object.assign(proposal, nextProposal)
+        if (writesBook) {
+          publishRepository?.(nextBooks)
+          publishBooks(nextBooks, this.destination().chapterId || result.changes.find(change => change.kind === 'chapter' && change.created)?.targetId || '')
+        }
+        if (usesWorldbook) publishWorldbook?.(result.worldbook)
+        return { ok: true, receipt, status: proposal.status }
+      })
     },
     async adopt(message) {
       const destination = this.destination()
       if (message?.projectId !== destination.bookId || message?.chapterId !== destination.chapterId || !destination.chapterId) return { ok: false, error: '请回到生成时的章节后采纳。' }
       if (message.status !== 'completed' || !message.text?.trim()) return { ok: false, error: '只有完整完成的回答可以采纳。' }
-      if (!persistCurrent?.()) return { ok: false, error: '当前文稿未能保存，尚未采纳。' }
       const { adoptStoryAgentTextToChapter } = await import('./adoptToChapter.js')
-      // Import may yield; recheck scope before reading or writing manuscript state.
-      const now = this.destination()
-      if (now.bookId !== destination.bookId || now.chapterId !== destination.chapterId) return { ok: false, error: '章节已切换，尚未采纳。' }
-      if (!persistCurrent?.()) return { ok: false, error: '当前文稿未能保存，尚未采纳。' }
-      const protection = protectCurrent?.(message.id)
-      if (protection?.ok === false) return { ok: false, error: '采纳前的版本未能保存，尚未采纳。' }
-      const result = adoptStoryAgentTextToChapter({ books: readBooks(), ...destination, text: message.text, sourceId: message.id })
-      if (!result.ok) return { ...result, error: result.reason === 'already-imported' ? '这段文字已采纳。' : '当前章节无法接收这段文字。' }
-      const receipt = saveBooks(result.books)
-      if (!receipt?.ok) return { ok: false, error: '文稿保存失败，尚未采纳；回答仍在对话中。' }
-      publishBooks(result.books, destination.chapterId)
+      const result = await withWritingBooksLock(() => {
+        const now = this.destination()
+        if (now.bookId !== destination.bookId || now.chapterId !== destination.chapterId) return { ok: false, error: '章节已切换，尚未采纳。' }
+        if (!persistCurrent?.()) return { ok: false, error: '当前文稿未能保存，尚未采纳。' }
+        const latest = readBooks()
+        const targetBook = latest.find(book => String(book.id) === destination.bookId)
+        const targetChapter = targetBook?.chapters?.find(chapter => String(chapter.id) === destination.chapterId)
+        if (!targetChapter) return { ok: false, error: '当前章节已移除，尚未采纳。' }
+        const next = adoptStoryAgentTextToChapter({ books: latest, ...destination, text: message.text, sourceId: message.id })
+        if (!next.ok) return { ...next, error: next.reason === 'already-imported' ? '这段文字已采纳。' : '当前章节无法接收这段文字。' }
+        const protection = protectCurrent?.(message.id, targetChapter)
+        if (protection?.ok === false) return { ok: false, error: '采纳前的版本未能保存，尚未采纳。' }
+        if (!saveBooks(next.books)?.ok) return { ok: false, error: '文稿保存失败，尚未采纳；回答仍在对话中。' }
+        publishBooks(next.books, destination.chapterId)
+        return next
+      })
+      if (!result.ok) return result
       let warning = ''
       if (observeAdoption) {
         try { await observeAdoption({ text: message.text, unitId: result.unitId, bookId: destination.bookId, chapterId: destination.chapterId }) }

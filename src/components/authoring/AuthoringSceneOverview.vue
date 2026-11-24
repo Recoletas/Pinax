@@ -1,4 +1,5 @@
 <script setup>
+import { sceneTimeLabel } from '../../services/agents/authoring/authoringSceneAnchors.js'
 import { computed } from 'vue'
 import { tr } from '../../i18n/index.js'
 
@@ -21,7 +22,7 @@ const presentNames = computed(() => (
   <div class="writing-inspector__body writing-scene-overview" data-authoring-inspector="scene">
     <p v-if="notice" class="writing-review-status" role="status">{{ notice }}</p>
     <dl class="writing-scene-overview__summary">
-      <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneProjection.time?.label || tr('未设置') }}</dd></div>
+      <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneTimeLabel(sceneProjection.time, tr('故事序号')) || tr('未设置') }}</dd></div>
       <div><dt>{{ tr('人物') }}</dt><dd>{{ presentNames || tr('未设置') }}</dd></div>
       <div>
         <dt>{{ tr('地点') }}</dt>

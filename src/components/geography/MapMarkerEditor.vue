@@ -2,15 +2,15 @@
   <div class="marker-editor">
     <div class="editor-header">
       <div>
-        <h3 class="editor-title">编辑标记</h3>
-        <p class="editor-subtitle">{{ marker.name }}</p>
+        <h3 class="editor-title">{{ marker.name }}</h3>
       </div>
-      <button class="icon-btn-xs" @click="$emit('close')">
+      <button aria-label="关闭地点" class="icon-btn-xs" @click="$emit('close')">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
 
     <div class="editor-body">
+      <slot />
       <div class="field">
         <label class="field-label">名称</label>
         <input class="text-input" v-model="name" @blur="commitName" />
@@ -155,15 +155,11 @@ function updateType(e) {
   color: var(--text-primary);
 }
 
-.editor-subtitle {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--text-muted);
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+@container atlas (max-width: 640px) {
+  .marker-editor { inset: auto 8px 8px; width: auto; max-height: 38%; }
 }
+.editor-title { overflow-wrap: anywhere; }
+
 
 .editor-body {
   padding: 10px;

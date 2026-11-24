@@ -9,6 +9,7 @@ import {
 } from '../../../shared/writingBlockHistoryContract.js'
 import { mutationFailure, mutationSuccess, storageWriteFailure } from '../storage/durableMutationResult.js'
 
+export { readHistory as listAllWritingBlockHistory }
 function readHistory() {
   return normalizeWritingBlockHistory(getItem(STORAGE_KEYS.WRITING_BLOCK_HISTORY))
 }

@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
-import { copyFile as nodeCopyFile, mkdir, open, readdir, readFile, rename, rm, stat } from 'node:fs/promises'
+import { createReadStream, createWriteStream } from 'node:fs'
+import { chmod, mkdir, open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { DESKTOP_ERROR_CODES } from '../../shared/desktopProjectContract.js'
-import { checkpointDatabase } from './projectDatabase.mjs'
+import { pipeline } from 'node:stream/promises'
+import { DESKTOP_ERROR_CODES, validateRelativeProjectPath } from '../../shared/desktopProjectContract.js'
+import { checkDatabaseIntegrity, closeProjectDatabase, openProjectDatabase, snapshotProjectDatabase } from './projectDatabase.mjs'
+import { readProjectText } from './projectFiles.mjs'
+import { readProjectManifest } from './projectManifest.mjs'
 import { syncDirectory } from './fsDurability.mjs'
 
 const ACCEPTED_ASSET_EXTENSIONS = new Set([
@@ -22,8 +26,6 @@ export async function createManagedBackup(project, deps = {}) {
   }
 
   const now = deps.now || (() => new Date())
-  const checkpoint = deps.checkpoint || checkpointDatabase
-  const copyFile = deps.copyFile || nodeCopyFile
   const timestamp = now().toISOString().replaceAll(':', '-').replaceAll('.', '-')
   const projectName = safeName(project.name || 'project')
   const baseName = `${projectName}-${timestamp}.pinax-backup`
@@ -33,26 +35,29 @@ export async function createManagedBackup(project, deps = {}) {
 
   try {
     await mkdir(destination, { recursive: true })
+    if (isContained(await realpath(source), await realpath(destination))) {
+      throw desktopError(DESKTOP_ERROR_CODES.PATH_OUTSIDE_PROJECT, 'Backup destination resolves inside the project')
+    }
     await mkdir(staging)
     ownsStaging = true
-    const checkpointResult = checkpoint(project.database)
-    if (checkpointResult?.busy) {
-      throw desktopError(DESKTOP_ERROR_CODES.IO_FAILED, 'SQLite checkpoint is busy')
-    }
-
     const sourceFiles = await collectBackupFiles(source)
     const files = []
     for (const relativePath of sourceFiles) {
       const from = join(source, ...relativePath.split('/'))
       const to = join(staging, ...relativePath.split('/'))
       await mkdir(dirname(to), { recursive: true })
-      await copyFile(from, to)
-      const content = await readFile(to)
-      files.push({
-        relativePath,
-        byteLength: content.byteLength,
-        sha256: hashBuffer(content)
-      })
+      let digest
+      if (relativePath === '.pinax/project.sqlite') {
+        await snapshotProjectDatabase(project.database, to)
+        digest = await fileDigest(to)
+      } else if (deps.copyFile) {
+        digest = await fileDigest(from)
+        await deps.copyFile(from, to)
+      } else {
+        digest = await fileDigest(from, to)
+      }
+      await syncBackupFile(to)
+      files.push({ relativePath, ...digest })
     }
 
     const backupManifest = {
@@ -63,7 +68,16 @@ export async function createManagedBackup(project, deps = {}) {
     }
     await writeAndSync(join(staging, 'backup-manifest.json'), `${JSON.stringify(backupManifest, null, 2)}\n`)
     await verifyBackup(staging, files)
-    await syncDirectory(staging)
+    await verifyProjectSnapshot(staging, project.projectId, files)
+    const directories = new Set([staging])
+    for (const file of files) {
+      let parent = dirname(join(staging, file.relativePath))
+      while (parent !== staging && !directories.has(parent)) {
+        directories.add(parent)
+        parent = dirname(parent)
+      }
+    }
+    for (const directory of [...directories].sort((a, b) => b.length - a.length)) await syncDirectory(directory)
     await rename(staging, finalPath)
     ownsStaging = false
     await syncDirectory(destination)
@@ -79,11 +93,10 @@ async function collectBackupFiles(root) {
   const required = ['.pinax/project.json', '.pinax/project.sqlite']
   const files = []
   for (const relativePath of required) {
-    try {
-      if ((await stat(join(root, ...relativePath.split('/')))).isFile()) files.push(relativePath)
-    } catch (error) {
-      if (error?.code !== 'ENOENT') throw error
+    if (!(await stat(join(root, ...relativePath.split('/')))).isFile()) {
+      throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup is missing a required project file', { relativePath })
     }
+    files.push(relativePath)
   }
   await collectTree(root, 'manuscript', files, (path) => extname(path).toLowerCase() === '.txt')
   await collectTree(root, 'reference', files, (path) => extname(path).toLowerCase() === '.txt')
@@ -110,10 +123,42 @@ async function collectTree(root, relativeDirectory, output, accepts) {
 
 async function verifyBackup(root, files) {
   for (const entry of files) {
-    const content = await readFile(join(root, ...entry.relativePath.split('/')))
-    if (content.byteLength !== entry.byteLength || hashBuffer(content) !== entry.sha256) {
+    const content = await fileDigest(join(root, ...entry.relativePath.split('/')))
+    if (content.byteLength !== entry.byteLength || content.sha256 !== entry.sha256) {
       throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup verification failed', { relativePath: entry.relativePath })
     }
+  }
+}
+
+async function verifyProjectSnapshot(root, expectedProjectId, files) {
+  const manifest = await readProjectManifest(root)
+  if (expectedProjectId && manifest.projectId !== expectedProjectId) {
+    throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup project identity changed')
+  }
+  const database = openProjectDatabase(join(root, '.pinax/project.sqlite'), { readOnly: true })
+  try {
+    const checks = checkDatabaseIntegrity(database)
+    if (checks.integrityCheck !== 'ok' || checks.foreignKeyViolation) {
+      throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup database failed integrity checks', checks)
+    }
+    if (database.listRecoverableFileTransactions().length) {
+      throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup has an incomplete database transaction')
+    }
+    const verified = new Map(files.map(file => [file.relativePath, file]))
+    for (const item of database.listTextItems()) {
+      const path = validateRelativeProjectPath(item.relativePath)
+      const bytes = path.valid && verified.get(path.value)
+      if (!bytes) throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup is missing an indexed text', { relativePath: item.relativePath })
+      // Normal LF files already matched the verified backup bytes. Older
+      // files with CRLF/CR need the same normalization as a desktop text read.
+      if (bytes.sha256 === item.contentHash && bytes.byteLength === item.byteLength) continue
+      const file = await readProjectText(root, item.relativePath)
+      if (file.contentHash !== item.contentHash || file.byteLength !== item.byteLength) {
+        throw desktopError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Backup text and database revision disagree', { relativePath: item.relativePath })
+      }
+    }
+  } finally {
+    closeProjectDatabase(database)
   }
 }
 
@@ -127,8 +172,32 @@ async function writeAndSync(path, content) {
   }
 }
 
-function hashBuffer(content) {
-  return createHash('sha256').update(content).digest('hex')
+async function syncBackupFile(path) {
+  // copyFile preserves a source file's read-only permissions. Flush that
+  // private copy and restore its mode without changing the author's source.
+  const mode = (await stat(path)).mode & 0o777
+  const readOnly = !(mode & 0o200)
+  if (readOnly) await chmod(path, mode | 0o200)
+  try {
+    const handle = await open(path, 'r+')
+    try { await handle.sync() } finally { await handle.close() }
+  } finally {
+    if (readOnly) await chmod(path, mode)
+  }
+}
+
+async function fileDigest(path, copyTo) {
+  const digest = createHash('sha256')
+  const mode = copyTo ? (await stat(path)).mode & 0o777 : null
+  const input = createReadStream(path)
+  if (copyTo) {
+    input.on('data', chunk => digest.update(chunk))
+    await pipeline(input, createWriteStream(copyTo, { flags: 'wx', mode: 0o600 }))
+    await chmod(copyTo, mode)
+  } else {
+    for await (const chunk of input) digest.update(chunk)
+  }
+  return { byteLength: input.bytesRead, sha256: digest.digest('hex') }
 }
 
 function safeName(value) {

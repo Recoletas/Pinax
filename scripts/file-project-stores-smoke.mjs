@@ -112,12 +112,27 @@ try {
   assert.equal(lateRepeat.snapshot, null)
   console.log('PASS application commands: operation receipts survive reopen/intervening writes, reused-ID conflict and damaged-metadata preservation')
 
+  const outlineFile = path.join(root, '大纲', 'outline.json')
+  const outlineText = fs.readFileSync(outlineFile, 'utf8')
+  const invalidOutline = outlineText + ','
+  const overviewFile = path.join(root, '大纲', '大纲.md')
+  const overview = fs.readFileSync(overviewFile, 'utf8')
+  fs.writeFileSync(outlineFile, invalidOutline)
+  const damaged = createFileProjectStores({ root, service })
+  const repairWriter = createFileProjectStores({ root, service, expectedSnapshot: damaged.snapshot() })
+  assert.equal((await repairWriter.chapters.save('book-one', 'chapter-stable', { content: '保留损坏的大纲。', expectedRevision: (await damaged.chapters.read('book-one', 'chapter-stable')).value.revision })).ok, true)
+  assert.equal(fs.readFileSync(outlineFile, 'utf8'), invalidOutline)
+  assert.equal(fs.readFileSync(overviewFile, 'utf8'), overview)
+  assert.equal((await repairWriter.nodes.create('book-one', { id: 'ignored', title: '大纲修复前不能保存' })).ok, false)
+  fs.writeFileSync(outlineFile, outlineText)
+  console.log('PASS chapter save preserves damaged outline and overview byte-for-byte')
+
   const beforeFailure = mirrorBookFingerprint(root)
   const faultBase = await runFileProjectCommand({ projectPath: root, action: 'snapshot' }, { service })
   const faultCommand = { projectPath: root, entity: 'chapter', action: 'save', id: 'blank', input: { content: '失败的保存不能残留', expectedRevision: 2 }, expectedSnapshot: faultBase.snapshot, operationId: 'retry-after-failure' }
   const rename = fs.renameSync
   fs.renameSync = (from, to) => {
-    if (from === `${root}.pinax-next-sync` && to === root) throw Object.assign(new Error('fixture replace failure'), { code: 'EIO' })
+    if (path.dirname(from) === `${root}.pinax-sync.json` && path.basename(from).startsWith('next-') && to === path.join(root, 'meta.json')) throw Object.assign(new Error('fixture replace failure'), { code: 'EIO' })
     return rename(from, to)
   }
   let failed
@@ -172,6 +187,24 @@ try {
 
   const app = express(); app.use(express.json()); app.use('/api/localmirror', createLocalMirrorRouter({ service }))
   server = await new Promise(resolve => { const listening = app.listen(0, '127.0.0.1', () => resolve(listening)) })
+  const browserSync = await fetch(`http://127.0.0.1:${server.address().port}/api/localmirror/sync`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ ...seed, source: 'browser-mirror', baseRevision: 0 })
+  })
+  assert.equal(browserSync.status, 409)
+  assert.equal((await browserSync.json()).error, 'ERR_SYNC_CONFLICT')
+  const receiptProject = service.createProjectAt({ path: path.join(temp, 'browser'), name: '浏览器镜像', kind: 'novel', bookId: 'browser' })
+  const syncUrl = `http://127.0.0.1:${server.address().port}/api/localmirror/sync`
+  let browserRevision = 0
+  for (const content of ['A', 'B']) {
+    const response = await fetch(syncUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({
+      source: 'browser-mirror', baseRevision: browserRevision, expectedProjectId: receiptProject.manifest.projectId, book: { id: 'browser', title: '浏览器', chapters: [{ id: 'c', title: '章', content }] }
+    }) })
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(body.revision, browserRevision + 1)
+    browserRevision = body.revision
+  }
   const post = body => fetch(`http://127.0.0.1:${server.address().port}/api/localmirror/core-operation`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
   const httpSnapshot = await (await post({ projectPath: root, action: 'snapshot' })).json()
   assert.equal(httpSnapshot.ok, true)

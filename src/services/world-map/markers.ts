@@ -6,12 +6,15 @@
 import type { MapMarker } from '../../types/world-map'
 import type { StyleConfig } from './engine/style-presets'
 
+interface LabelBounds { left: number; right: number; top: number; bottom: number }
+
 function drawMarker(
   ctx: CanvasRenderingContext2D,
   marker: MapMarker,
   isSelected: boolean,
   isHovered: boolean,
   style: StyleConfig,
+  labels: LabelBounds[],
 ) {
   const { x, y } = marker
   const isCapital = marker.type === 'capital'
@@ -55,17 +58,30 @@ function drawMarker(
   ctx.arc(x, y, isCapital ? 3.6 : 1.4, 0, Math.PI * 2)
   ctx.fill()
 
-  const fontSize = isCapital ? 12 : 9
+  const fontSize = isSelected || isCapital ? 13 : 11
   ctx.fillStyle = style.burgLabelColor
-  ctx.font = `${isCapital ? 'bold ' : ''}${fontSize}px ${style.burgLabelFont}`
+  ctx.font = `${isSelected || isCapital ? 'bold ' : ''}${fontSize}px ${style.burgLabelFont}`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'top'
   ctx.strokeStyle = style.burgLabelStroke
   ctx.lineWidth = 3
   ctx.lineJoin = 'round'
-  const nameY = y + (isCapital ? 8 : 6)
-  ctx.strokeText(marker.name, x, nameY)
-  ctx.fillText(marker.name, x, nameY)
+  const gap = radius + 4
+  const halfWidth = ctx.measureText(marker.name).width / 2 + 2
+  const positions = [
+    [x + gap + halfWidth, y - fontSize], [x - gap - halfWidth, y - fontSize],
+    [x + gap + halfWidth, y], [x - gap - halfWidth, y],
+    [x, y - gap - fontSize], [x, y + gap],
+  ]
+  for (const [center, top] of positions) {
+    const bounds = { left: center - halfWidth, right: center + halfWidth, top: top - 2, bottom: top + fontSize + 2 }
+    if (labels.some(other => other.left < bounds.right && other.right > bounds.left
+      && other.top < bounds.bottom && other.bottom > bounds.top)) continue
+    labels.push(bounds)
+    ctx.strokeText(marker.name, center, top)
+    ctx.fillText(marker.name, center, top)
+    break
+  }
 
   ctx.restore()
 }
@@ -78,10 +94,15 @@ export function drawMarkers(
   style?: StyleConfig,
 ): void {
   if (!style) return
-  for (const marker of markers) {
+  const priority = (m: MapMarker) => m.id === selectedMarkerId ? 7 : m.id === hoveredMarkerId ? 6 : m.importance || 0
+  const labels: LabelBounds[] = markers.map(({ x, y, type }) => {
+    const r = type === 'capital' ? 6 : 3.5
+    return { left: x - r, right: x + r, top: y - r, bottom: y + r }
+  })
+  for (const marker of [...markers].sort((a, b) => priority(b) - priority(a))) {
     const isSelected = marker.id === selectedMarkerId
     const isHovered = marker.id === hoveredMarkerId
-    drawMarker(ctx, marker, isSelected, isHovered, style)
+    drawMarker(ctx, marker, isSelected, isHovered, style, labels)
   }
 }
 
@@ -91,11 +112,17 @@ export function hitTestMarker(
   my: number,
   radius = 16,
 ): MapMarker | null {
+  let nearest: MapMarker | null = null
+  let distance = radius * radius
   for (let i = markers.length - 1; i >= 0; i--) {
     const m = markers[i]
     const dx = mx - m.x
     const dy = my - m.y
-    if (dx * dx + dy * dy <= radius * radius) return m
+    const squared = dx * dx + dy * dy
+    if (squared <= radius * radius && (!nearest || squared < distance)) {
+      nearest = m
+      distance = squared
+    }
   }
-  return null
+  return nearest
 }

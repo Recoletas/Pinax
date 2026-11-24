@@ -83,6 +83,17 @@ function record(kind, id, title, content, data = {}) {
   return { kind, id, title: String(title || ''), content: String(content || ''), tags, data: { ...data, id } }
 }
 
+// Binding keys are relative to their source directory. A legacy basename
+// therefore only applies to its direct child, never a nested namesake.
+export function sourceBinding(relative, metadata) {
+  const slash = relative.indexOf('/')
+  const directory = relative.slice(0, slash)
+  const bindings = directory === '正文' ? metadata?.chapterFiles
+    : directory === '构思' ? metadata?.explorationFiles : null
+  const key = relative.slice(slash + 1)
+  return bindings && Object.hasOwn(bindings, key) ? bindings[key] : null
+}
+
 export function parseSource(relative, text, { metadata = null } = {}) {
   const content = text.replace(/\r\n/g, '\n')
   const title = titleOf(relative)
@@ -91,8 +102,7 @@ export function parseSource(relative, text, { metadata = null } = {}) {
   // identity; project ideas never become global NoteStore notes.
   if (relative.startsWith('正文/') || relative.startsWith('构思/')) {
     const chapter = relative.startsWith('正文/')
-    const bindings = chapter ? metadata?.chapterFiles : metadata?.explorationFiles
-    const binding = bindings?.[path.posix.basename(relative)]
+    const binding = sourceBinding(relative, metadata)
     const value = readBoundDocument(text, binding, { id: relative, title, contentFormat: 'md' }, { chapter })
     return { items: [record(chapter ? 'chapter' : 'exploration', value.id, value.title, value.content, value)], warnings: [] }
   }

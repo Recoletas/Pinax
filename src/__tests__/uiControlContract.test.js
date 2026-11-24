@@ -414,7 +414,7 @@ describe('workbench control contract (U1)', () => {
       expect(await host.openHome()).toBe(true)
       const homeView = host.state.views.find(view => view.resource.type === 'home')
       expect(homeView).toMatchObject({ group: 'main', pinned: true })
-      expect(host.directory.expanded.value).toBe(true)
+      expect(host.directory.expanded.value).toBe(false)
       host.directory.setExpanded(true)
       expect(host.directory.expanded.value).toBe(true)
       expect(host.state.mainModuleId).toBe(homeView.id)
@@ -696,7 +696,8 @@ describe('workbench control contract (U1)', () => {
     const savedProposalReply = conversationStore.load('late-proposal-book').conversation.messages.at(-1)
     expect(savedProposalReply).toMatchObject({ status: 'interrupted', stopReason: 'owner-disposed', text: '已生成建议。', proposal: retainedProposal })
     const workspaceTabs = readFileSync(resolve(__dirname, '../components/workbench/WorkspaceTabs.vue'), 'utf8')
-    expect(workspaceTabs).toContain('src="/pinax-icon-192.png"')
+    expect(workspaceTabs).toContain('import.meta.env.BASE_URL}pinax-icon-192.png')
+    expect(workspaceTabs).toContain(':src="homeIconUrl"')
     expect(workspaceTabs).toContain('height: 36px;')
     // N-B：关闭钮为兄弟 button（消除交互嵌套），hover/聚焦/激活时可见。
     expect(workspaceTabs).toContain('.ws-tab-slot:is(:hover, :focus-within) .ws-tab__close')
@@ -830,7 +831,6 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).not.toMatch(/authoring-mode-tabs|体验模式|写作模式/)
     expect(source).toContain('class="writing-page wall wt3-prototype"')
     expect(source).not.toContain('const wt3Prototype')
-    expect(source).toContain("文本工作台 v3 正式文档树")
     expect(source).toContain('<AuthoringIdeaShelf')
     expect(source).toContain('<AuthoringDualPane')
     expect(source).toContain('<AuthoringQuickWords')
@@ -1252,8 +1252,8 @@ const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf
     expect(source).toContain(':legacy-note-count="wt3LegacyNoteCount"')
     expect(source).toContain(':chapters="chapters"')
     expect(source).toContain(':explorations="wt3ExplorationDocs"')
-    expect(source).toContain('@open-project-chapter="selectChapter"')
-    expect(source).toContain('@open-project-exploration="openExplorationDoc"')
+    expect(source).toContain('@open-project-chapter="id => runDocumentBoundary(selectChapter, id)"')
+    expect(source).toContain('@open-project-exploration="id => runDocumentBoundary(openExplorationDoc, id)"')
     expect(source).toContain("const wt3MigratedBookIds = new Set()")
     expect(source).toContain("const wt3MigrationTasks = new Map()")
     expect(source).toContain("const bookId = String(selectedBookId.value || '')")
@@ -1371,7 +1371,7 @@ for (const cls of ['control-primary', 'control-secondary', 'control-quiet', 'con
     const mapTree = readFileSync(resolve(__dirname, '../components/geography/WorldTreeItem.vue'), 'utf8')
     expect(mapTree).toContain('<button v-else class="node-name workspace-nav-label"')
     expect(mapTree).toContain('.tree-row:focus-within .row-actions')
-    expect(writing).toContain('@keydown.space.prevent="selectChapter(entry.chapter.id)"')
+    expect(writing).toContain('@keydown.space.prevent="runDocumentBoundary(selectChapter, entry.chapter.id)"')
     // 单一产品主题在入口静态加载控件层，不再保留运行时主题分叉。
     expect(mainEntry).toContain("import './styles/workbench-controls.css'")
 }
@@ -1790,6 +1790,24 @@ expect(uiAudit).toContain("id: 'authoring'")
 
 describe('authoring memory projection contracts', () => {
   it("shows a transient candidate count and reserves review for exceptions（合并3例）", async () => {
+    // Worldbook homonyms must keep distinct subject/object identities even in a rumor.
+    const { mount } = await import('@vue/test-utils')
+    const { default: StatementForm } = await import('../components/authoring/WorldStatementForm.vue')
+    const entries = ['a', 'b'].map(id => ({ id, name: '青石', label: '青石 · ' + id, key: 'wbentry:world:' + id }))
+    const form = mount(StatementForm, { props: { book: { id: 'book', title: '山上' }, entities: entries } })
+    try {
+      await form.get('[name="subject"]').setValue('a')
+      await form.get('[name="predicate"]').setValue('照看')
+      await form.get('[name="objectMode"]').setValue('entity')
+      await form.get('[name="target"]').setValue('b')
+      await form.get('[name="storyAt"]').setValue('0')
+      await form.trigger('submit')
+      const fact = form.emitted('save')[0][0]
+      expect(fact).toMatchObject({ subjectKey: entries[0].key, objectRef: entries[1].key, authority: 'fact', storyAt: 0 })
+      await form.get('[name="authority"]').setValue('rumor')
+      await form.trigger('submit')
+      expect(form.emitted('save')[1][0]).toMatchObject({ subjectKey: entries[0].key, objectRef: entries[1].key, authority: 'rumor', storyAt: null })
+    } finally { form.unmount() }
 {
 const source = await readFile(resolve(__dirname, '../pages/Authoring.vue'), 'utf8')
     expect(source).toContain('<AuthoringAssistantWorkspace')

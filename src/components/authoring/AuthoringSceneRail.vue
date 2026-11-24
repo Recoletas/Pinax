@@ -1,4 +1,5 @@
 <script setup>
+import { sceneTimeLabel } from '../../services/agents/authoring/authoringSceneAnchors.js'
 import { tr } from '../../i18n/index.js'
 import { computed, ref } from 'vue'
 import SceneIndexSection from '../scene/SceneIndexSection.vue'
@@ -93,7 +94,7 @@ const sceneSections = computed(() => {
   return [
     {
       key: 'time', label: '时间', count: projection.time ? 1 : 0,
-      latest: projection.time?.label || '补充时间', empty: !projection.time, update: Number(updates.time) || 0,
+      latest: sceneTimeLabel(projection.time, tr('故事序号')) || '补充时间', empty: !projection.time, update: Number(updates.time) || 0,
       actionLabel: projection.time ? '查看时间详情' : '补充本场时间',
       targetRef: projection.time?.id ? `time:${projection.time.id}` : ''
     },

@@ -21,7 +21,8 @@ export function normalizeWorkspaceResource(value) {
   if (['source', 'entry'].includes(value.type) && !id) return null
   const resource = { type: value.type, bookId, worldbookId, id }
   // Only navigation metadata is persisted. No content, grant or provider keys.
-  for (const key of ['contentHash', 'chunkId', 'versionId', 'pageId', 'panelId', 'assetId', 'roomSlug', 'entryId', 'placeId', 'historyNodeId', 'sessionId', 'messageId', 'settingsCategory', 'entryRequestId', 'nodeId', 'matchText', 'extensionId']) if (text(value[key])) resource[key] = text(value[key])
+  for (const key of ['contentHash', 'chunkId', 'versionId', 'pageId', 'panelId', 'assetId', 'roomSlug', 'entryId', 'placeId', 'historyNodeId', 'sessionId', 'messageId', 'settingsCategory', 'entryRequestId', 'nodeId', 'extensionId']) if (text(value[key])) resource[key] = text(value[key])
+  if (typeof value.matchText === 'string' && value.matchText.length) resource.matchText = value.matchText
   if (typeof value.focusEntry === 'boolean') resource.focusEntry = value.focusEntry
   if (['files', 'sources', 'knowledge'].includes(value.sourcesView)) resource.sourcesView = value.sourcesView
   if (['detail', 'table', 'graph'].includes(value.settingsView)) resource.settingsView = value.settingsView

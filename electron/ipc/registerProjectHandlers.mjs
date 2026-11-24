@@ -16,6 +16,16 @@ import {
 const { DESKTOP_CHANNELS } = channelsModule
 
 export function registerProjectHandlers({ ipcMain, getWindow, isTrustedUrl, dialog, repository, migrationService, cacheManager }) {
+  ipcMain.on(DESKTOP_CHANNELS.PROJECT_MANUSCRIPT, (event, input) => {
+    if (!isTrustedSender(event, getWindow(), isTrustedUrl)) {
+      event.returnValue = failure(DESKTOP_ERROR_CODES.INVALID_INPUT, 'Untrusted desktop IPC sender')
+      return
+    }
+    void repository.manuscript(input).then(
+      value => { event.returnValue = success(toSerializable(value)) },
+      error => { event.returnValue = failure(error?.code, error?.message, error?.details) }
+    )
+  })
   const registrations = [
     [DESKTOP_CHANNELS.PROJECT_CHOOSE_DIRECTORY, noPayload, async () => {
       const result = await dialog.showOpenDialog(getWindow(), { properties: ['openDirectory', 'createDirectory'] })
@@ -68,7 +78,8 @@ function noPayload() {
 function validateListInput(input) {
   if (!input || !['manuscript', 'reference'].includes(input.kind)) return invalid('Invalid text list kind')
   if (input.directory !== undefined && typeof input.directory !== 'string') return invalid('Invalid contained directory')
-  return { valid: true, value: { kind: input.kind, directory: input.directory || '' } }
+  if (input.view !== undefined && !['full', 'summary'].includes(input.view)) return invalid('Invalid text list view')
+  return { valid: true, value: { kind: input.kind, directory: input.directory || '', view: input.view ?? 'full' } }
 }
 
 function validateItemInput(input) {

@@ -10,7 +10,7 @@ import { chromium } from 'playwright'
 const BASE_URL = process.env.PINAX_EVIDENCE_AUDIT_EVAL_URL || 'http://127.0.0.1:5179'
 const browser = await chromium.launch({ headless: true })
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
   const pageErrors = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto(BASE_URL)
@@ -112,17 +112,19 @@ try {
   await page.getByRole('tab', { name: '记忆与历史' }).click()
   const workspace = page.locator('.memory-workspace')
   await workspace.getByLabel('归属').selectOption({ value: JSON.stringify(['project', 'book-audit']) })
-  await page.getByRole('button', { name: '事实账本' }).click()
-  const warning = workspace.locator('[data-test="evidence-stale-warning"]').first()
-  await warning.waitFor({ timeout: 15000 })
+  await workspace.getByRole('button', { name: '事实账本' }).click()
+  const ledger = workspace.getByRole('region', { name: '事实账本' })
+  const proposal = ledger.locator('article').filter({ has: page.getByText('潮汐', { exact: true }) })
+  await proposal.locator('[data-test="evidence-stale-warning"]').waitFor({ timeout: 15000 })
   // 普通接受被两步拦截：第一次点击只出现显式确认按钮
-  const acceptButton = workspace.getByRole('button', { name: '接受为事实', exact: true }).first()
+  const acceptButton = proposal.getByRole('button', { name: '接受为事实', exact: true })
   await acceptButton.click()
-  const confirmButton = workspace.locator('[data-test="accept-stale"]').first()
+  const confirmButton = proposal.locator('[data-test="accept-stale"]')
   await confirmButton.waitFor({ timeout: 10000 })
   await confirmButton.click()
-  const feedback = await page.locator('[role="status"], .memory-workspace__hint').last().innerText().catch(() => '')
-  console.log('[memory-evidence-audit-eval] ui ok: 两步接受已生效', JSON.stringify({ feedback: feedback.slice(0, 40) }))
+  const feedback = workspace.getByRole('status').filter({ hasText: '已接受为正式事实' })
+  await feedback.waitFor()
+  console.log('[memory-evidence-audit-eval] ui ok: 两步接受已生效', JSON.stringify({ feedback: await feedback.innerText() }))
   if (pageErrors.length) {
     console.error('[memory-evidence-audit-eval] page errors:', pageErrors)
     process.exitCode = 1

@@ -187,7 +187,10 @@ function draw(activeHover) {
   const screenLabelFont = k < 1 ? labelFont.replace(/([\d.]+)px/, (_, size) => `${Number(size) / k}px`) : labelFont
   // 名称显隐：放大后全显，度数 ≥5 的枢纽与检索命中常显
   const labelAll = nodes.length <= 40 || k >= 1.2
-  for (const n of nodes) {
+  const cards = []
+  const priority = node => node.e.id === activeHover ? 3 : node.e.id === props.focusEntryId ? 2 : hits?.has(node.e.id) ? 1 : 0
+  const ordered = props.labeledNodes ? [...nodes].sort((a, b) => priority(b) - priority(a) || b.deg - a.deg) : nodes
+  for (const n of ordered) {
     if (!isVisible(n.e.id)) continue
     const alpha = dimOf(n.e.id)
     if (alpha === 0) continue
@@ -198,7 +201,16 @@ function draw(activeHover) {
       const chosen = n.e.id === props.focusEntryId
       ctx.font = labelFont.replace(/([\d.]+)px/, (_, size) => `${Number(size) / k}px`)
       const label = n.e.title.length > 12 ? n.e.title.slice(0, 11) + '…' : n.e.title
-      const width = Math.max(176 / k, ctx.measureText(label).width + 48 / k), height = 88 / k
+      const width = Math.max(92 / k, ctx.measureText(label).width + 22 / k), height = 56 / k
+      if (cards.some(card => Math.abs(n.x - card.x) < (width + card.width) / 2 + 8 / k && Math.abs(n.y - card.y) < (height + card.height) / 2 + 8 / k)) {
+        n.labelBox = null
+        if (!cards.some(card => Math.abs(n.x - card.x) < card.width / 2 + 7 / k && Math.abs(n.y - card.y) < card.height / 2 + 7 / k)) {
+          ctx.beginPath(); ctx.arc(n.x, n.y, 6 / k, 0, Math.PI * 2); ctx.fillStyle = catColorOf(n.e.cat); ctx.fill()
+        }
+        ctx.globalAlpha = 1
+        continue
+      }
+      cards.push({ x: n.x, y: n.y, width, height })
       n.labelBox = { width, height }
       ctx.beginPath()
       if (ctx.roundRect) ctx.roundRect(n.x - width / 2, n.y - height / 2, width, height, 12 / k)
@@ -206,10 +218,10 @@ function draw(activeHover) {
       ctx.fillStyle = chosen ? selectedFill : nodeFill; ctx.fill()
       ctx.lineWidth = 1.5 / k; ctx.strokeStyle = chosen ? hitColor : nodeStroke; ctx.stroke()
       ctx.fillStyle = labelColor; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
-      ctx.fillText(label, n.x, n.y - 14 / k)
-      ctx.font = labelFont.replace(/([\d.]+)px/, () => `${22 / k}px`)
+      ctx.fillText(label, n.x, n.y - 9 / k)
+      ctx.font = labelFont.replace(/([\d.]+)px/, () => `${17 / k}px`)
       ctx.globalAlpha = alpha * .65
-      ctx.fillText(n.e.cat, n.x, n.y + 22 / k)
+      ctx.fillText(n.e.cat, n.x, n.y + 14 / k)
       ctx.textBaseline = 'alphabetic'
       ctx.globalAlpha = 1
       continue
@@ -380,9 +392,11 @@ function pickNode(clientX, clientY) {
   let bestD = Infinity
   for (const n of layout.nodes) {
     if (!isVisible(n.e.id)) continue
+    if (props.labeledNodes && n.labelBox && Math.abs(n.x - p.x) <= n.labelBox.width / 2 && Math.abs(n.y - p.y) <= n.labelBox.height / 2) return n
+    if (props.labeledNodes && n.labelBox) continue
     const r = Math.max(radiusOf(n), 12 / k)
     const d = (n.x - p.x) ** 2 + (n.y - p.y) ** 2
-    if ((props.labeledNodes && n.labelBox ? Math.abs(n.x - p.x) <= n.labelBox.width / 2 && Math.abs(n.y - p.y) <= n.labelBox.height / 2 : d <= r * r) && d < bestD) {
+    if (d <= r * r && d < bestD) {
       best = n
       bestD = d
     }

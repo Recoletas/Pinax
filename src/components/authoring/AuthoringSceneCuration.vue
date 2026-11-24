@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
+import WorldClockPicker from './WorldClockPicker.vue'
 import { MAX_AUTHORING_PRESENT_CHARACTERS } from '../../services/agents/authoring/authoringSceneAnchors.js'
 
 // worldbook scene closure Task 10：右侧检查器的现场调整（受控组件）。
@@ -8,6 +9,7 @@ import { MAX_AUTHORING_PRESENT_CHARACTERS } from '../../services/agents/authorin
 // 再说明这个对象是设为在场、安排下一段，还是仅供本次推演。
 
 const props = defineProps({
+  calendars: { type: Array, default: () => [] },
   draft: { type: Object, required: true },
   worldbookStatus: { type: String, required: true },
   characterCandidates: { type: Array, default: () => [] },
@@ -40,6 +42,12 @@ function patchDraft(patch) {
   emit('update-draft', { ...props.draft, ...patch })
 }
 
+function changeClock(clock) {
+  const calendar = props.calendars.find(row => row.id === clock?.timelineId)
+  const era = calendar?.eras.find(row => row.id === clock?.eraId)
+  patchDraft({ time: { ...props.draft.time, storyClock: clock?.timelineId === 'default' ? null : clock,
+    clockLabel: calendar && era ? calendar.label + ' · ' + era.label : '' } })
+}
 const timeLabel = computed(() => props.draft?.time?.label || '')
 const timePeriod = computed(() => props.draft?.time?.period || '')
 const worldbookReady = computed(() => props.worldbookStatus === 'bound')
@@ -149,6 +157,7 @@ function chooseCurrentLocation(candidate) {
         <header class="scene-curation__group-head">
           <strong>时间</strong>
         </header>
+        <WorldClockPicker :calendars="calendars" :model-value="draft.time?.storyClock" @update:model-value="changeClock" />
         <div class="scene-curation__time-grid">
           <label class="scene-curation__field">
             <span>时间标签</span>
@@ -169,6 +178,11 @@ function chooseCurrentLocation(candidate) {
               placeholder="如：深夜"
               @input="patchDraft({ time: { ...props.draft.time, period: $event.target.value } })"
             />
+          </label>
+          <label class="scene-curation__field">
+            <span>世界模型故事时点</span>
+            <input type="text" :value="draft.time?.storyAt ?? ''" placeholder="整数，未知时留空"
+              @input="patchDraft({ time: { ...draft.time, storyAt: $event.target.value } })" />
           </label>
         </div>
       </section>

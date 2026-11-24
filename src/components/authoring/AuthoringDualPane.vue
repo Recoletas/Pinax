@@ -202,6 +202,7 @@ const props = defineProps({
   mainDocument: { type: Object, default: null },
   mainMarkdown: { type: String, default: '' },
   active: Boolean,
+  readChapter: Function,
   saveChapter: { type: Function, required: true },
   saveExploration: { type: Function, required: true },
   protectDestructiveEdit: { type: Function, default: null },
@@ -405,7 +406,7 @@ function clearSelectedIds() {
 }
 
 function loadSelectedChapter(chapterId) {
-  const chapter = props.chapters.find((item) => String(item?.id) === String(chapterId))
+  const chapter = props.readChapter ? props.readChapter(chapterId) : props.chapters.find(item => String(item?.id) === String(chapterId))
   if (!chapter) return false
   selectedKind.value = 'chapter'
   clearSelectedIds()

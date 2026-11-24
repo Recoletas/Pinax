@@ -18,6 +18,7 @@ const props = defineProps({
     default: null
   },
   // Task 10：现场调整受控草稿与候选（组件自身不访问 store/provider）。
+  calendars: { type: Array, default: () => [] },
   curation: { type: Object, default: null },
   worldbookStatus: { type: String, default: 'unbound' },
   characterCandidates: { type: Array, default: () => [] },
@@ -112,7 +113,7 @@ watch(() => `${props.detail?.kind || ''}:${props.detail?.id || ''}`, focusTitle)
     <!-- Task 10：现场调整作为检查器的临时路由渲染。 -->
     <AuthoringSceneCuration
       v-if="detail.kind === 'scene-edit'"
-      :draft="curation"
+      :draft="curation" :calendars="calendars"
       :worldbook-status="worldbookStatus"
       :character-candidates="characterCandidates"
       :location-candidates="locationCandidates"

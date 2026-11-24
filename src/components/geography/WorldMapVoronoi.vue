@@ -193,6 +193,22 @@
     <!-- Legend popup -->
     <div v-if="mapData && !generating && showLegend" class="legend-popup">
       <h4 class="legend-title">地图图例</h4>
+      <template v-if="renderStylePreset === 'topographic' && renderLayers.terrain">
+        <div class="legend-section">
+          <p class="legend-section-title">水域</p>
+          <div class="legend-row"><div class="legend-color" style="background:#d6eae8"></div><span>近岸</span></div>
+          <div class="legend-row"><div class="legend-color" style="background:#afcfd9"></div><span>远岸</span></div>
+          <div v-if="renderLayers.rivers" class="legend-row"><div class="legend-line" style="border-color:#477f91"></div><span>河流</span></div>
+        </div>
+        <div class="legend-section">
+          <p class="legend-section-title">相对海拔</p>
+          <div class="legend-row"><div class="legend-color" style="background:#e4e8ca"></div><span>低地</span></div>
+          <div class="legend-row"><div class="legend-color" style="background:#cbd4b8"></div><span>丘陵</span></div>
+          <div class="legend-row"><div class="legend-color" style="background:#d7c8b5"></div><span>山地</span></div>
+          <div class="legend-row"><div class="legend-color" style="background:#f4f1e5"></div><span>高峰</span></div>
+        </div>
+      </template>
+      <template v-else>
       <div class="legend-section">
         <p class="legend-section-title">水域</p>
         <div class="legend-row"><div class="legend-color" style="background:#0f5d95"></div><span>深海</span></div>
@@ -207,6 +223,7 @@
         <div class="legend-row"><div class="legend-color" style="background:rgb(220,200,160)"></div><span>高山</span></div>
         <div class="legend-row"><div class="legend-color" style="background:rgb(240,220,180)"></div><span>雪线</span></div>
       </div>
+      </template>
     </div>
 
     <!-- Marker editor sidebar -->
@@ -216,7 +233,7 @@
       @update="handleMarkerUpdate"
       @delete="handleMarkerDelete"
       @close="selectedMarkerId = null"
-    />
+    ><slot name="marker-detail" :marker="selectedMarker" /></MapMarkerEditor>
   </div>
 </template>
 
@@ -592,7 +609,7 @@ function focusCoordinates(x, y) {
   vp.value = {
     scale,
     offsetX: x - container.clientWidth / (2 * scale),
-    offsetY: y - container.clientHeight / (2 * scale),
+    offsetY: y - container.clientHeight * (container.clientWidth <= 640 && selectedMarkerId.value ? 0.35 : 0.5) / scale,
   }
   schedulePaint()
   return true
@@ -966,20 +983,18 @@ watch(authoredBurgProjectionKey, () => {
   if (mapData.value) rerender()
 })
 
-watch(() => props.focusMarkerId, (markerId) => {
-  if (!markerId) return
-  if (props.markers.some((marker) => marker.id === markerId)) {
-    selectedMarkerId.value = markerId
+// A link can arrive before either the terrain or its confirmed marker.
+watch([mapData, () => props.focusMarkerId, () => props.markers.find(m => m.id === props.focusMarkerId)?.id],
+  ([data, requested, found], previous) => {
+    if (!data) return
+    if (data !== previous?.[0]) fitToView()
+    if (requested && found) {
+      const marker = props.markers.find(m => m.id === found)
+      selectedMarkerId.value = found
+      focusCoordinates(marker.x, marker.y)
+    }
     schedulePaint()
-  }
-})
-
-// When mapData changes, fit to view and paint
-watch(mapData, () => {
-  if (!mapData.value) return
-  fitToView()
-  schedulePaint()
-})
+  }, { flush: 'post', immediate: true })
 
 const onResize = () => {
   const width = containerRef.value?.clientWidth
@@ -1122,6 +1137,7 @@ function roundTo(value, digits) {
 
 <style scoped>
 .voronoi-container {
+  container: atlas / inline-size;
   position: relative;
   width: 100%;
   height: 100%;
@@ -1577,4 +1593,12 @@ function roundTo(value, digits) {
 }
 
 /* Spin animation lives in src/styles/main.css so it isn't redeclared per component. */
+@container atlas (max-width: 640px) {
+  .info-bar { top: 50px; left: 8px; padding: 4px 8px; }
+  .top-actions { inset: 8px 8px auto; justify-content: end; flex-wrap: wrap; }
+  .hint-text { display: none; }
+  .bottom-bar { left: 8px; right: 110px; gap: 4px; }
+  .scale-label { display: none; }
+  .zoom-controls { right: 8px; }
+}
 </style>

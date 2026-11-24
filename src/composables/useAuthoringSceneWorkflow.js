@@ -15,7 +15,8 @@ function persistentSnapshot(draft = {}) {
     viewpointCharacterId: String(draft.viewpointCharacterId || ''),
     time: {
       label: String(draft.time?.label || ''),
-      period: String(draft.time?.period || '')
+      period: String(draft.time?.period || ''),
+      storyAt: String(draft.time?.storyAt ?? ''), storyClock: draft.time?.storyClock ?? null, clockLabel: draft.time?.clockLabel ?? ''
     }
   }
 }
@@ -73,6 +74,8 @@ export function useAuthoringSceneWorkflow({
       viewpointCharacterId: (resolution.anchor || resolution.conflictingAnchor) ? (base.viewpointCharacterId || '') : (projection.viewpointCharacter?.id || ''),
       time: {
         label: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.label || '') : (projection.time?.label || ''),
+        storyAt: resolution.anchor?.time?.storyAt ?? '',
+        storyClock: resolution.anchor?.time?.storyClock ?? null, clockLabel: resolution.anchor?.time?.clockLabel ?? '',
         period: (resolution.anchor || resolution.conflictingAnchor) ? (base.time?.period || '') : (projection.time?.period || '')
       }
     }
@@ -80,6 +83,22 @@ export function useAuthoringSceneWorkflow({
   }
 
   const sceneCurationDraft = ref(null)
+  const curationCalendars = shallowRef([])
+  watch(() => sceneCurationDraft.value?.projectId, async (bookId, _, cleanup) => {
+    let active = true
+    cleanup(() => { active = false })
+    curationCalendars.value = []
+    if (!bookId) return
+    try {
+      const [{ withLedgerDb }, { listWorldCalendars }] = await Promise.all([
+        import('../services/memory/ledger/ledgerDb.js'), import('../services/memory/ledger/factLedger.js')
+      ])
+      const result = await withLedgerDb(db => listWorldCalendars(db, { scope: { domain: 'book', bookId } }), { openTimeoutMs: 1500 })
+      if (active && result?.ok) curationCalendars.value = result.items
+    } catch {
+      if (active) sceneCurationError.value = { phase: 'calendar', message: '作品历法暂时无法读取，原场景时间仍保留。' }
+    }
+  })
   const sceneCurationBaseline = shallowRef(null)
   const sceneCurationBusy = ref(false)
   const sceneCurationError = shallowRef(null)
@@ -241,7 +260,7 @@ export function useAuthoringSceneWorkflow({
           ? '文档已变化，请核对当前落笔处后重试'
           : result.reason === 'persist'
             ? '现场未保存，已恢复原状态；草稿仍保留，可重试'
-            : '无法保存这份现场调整'
+            : result.reason === 'invalid-story-time' ? '故事时点需要填写安全范围内的整数，未知时请留空' : '无法保存这份现场调整'
       }
       return false
     }
@@ -361,7 +380,7 @@ export function useAuthoringSceneWorkflow({
     sceneCurationBusy,
     sceneCurationCanRestoreInheritance,
     sceneCurationCanUndo,
-    sceneCurationDraft,
+    sceneCurationDraft, curationCalendars,
     sceneCurationError,
     sceneCurationHasUnsavedChanges,
     sceneCurationPreviewOpen,

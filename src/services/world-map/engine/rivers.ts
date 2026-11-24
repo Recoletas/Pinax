@@ -96,6 +96,7 @@ export function generateRivers(
     // 沿排水方向向下追踪
     const path: number[] = [trueSource]
     let current = trueSource
+    let confluence = -1
     let mouth = trueSource
 
     for (let step = 0; step < 1000; step++) {
@@ -104,7 +105,8 @@ export function generateRivers(
 
       // 汇入已有河流 → 停止
       if (assigned[next] && assigned[next] !== riverId) {
-        mouth = current
+        confluence = next
+        mouth = next
         break
       }
 
@@ -163,8 +165,32 @@ export function generateRivers(
       cells.r[c] = riverId
     }
 
+    if (confluence >= 0) {
+      const parent = rivers[assigned[confluence] - 1]
+      const index = parent.cells.indexOf(confluence)
+      const point = parent.points[index]
+      if (point) {
+        let junction: [number, number] = [...point]
+        if (index > 0 && index + 1 < parent.points.length) {
+          // Midpoint of the quadratic used to draw this reach.
+          const before = parent.points[index - 1], after = parent.points[index + 1]
+          const w = index === 1 ? 0.25 : 0.125
+          const centerWeight = 0.875 - w
+          junction = [
+            w * before[0] + centerWeight * point[0] + 0.125 * after[0],
+            w * before[1] + centerWeight * point[1] + 0.125 * after[1],
+          ]
+        }
+        river.points.push(junction)
+        river.widths.push(river.widths[river.widths.length - 1])
+        river.cells.push(confluence)
+        river.length = river.cells.length
+        river.parent = parent.i
+      }
+    }
+
     // deltaic 模式：在入海口前 5 cell 处分叉 3 个分支
-    if (realism.style === 'deltaic' && path.length > 5) {
+    if (realism.style === 'deltaic' && confluence < 0 && path.length > 5) {
       applyDelta(cells, river, riverId, path, rng)
       // delta 给 cells 追加分支，同步 length 字段
       river.length = river.cells.length

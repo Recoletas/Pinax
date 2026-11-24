@@ -251,9 +251,23 @@
 }
 
 .theme-legacy .writing-page .authoring-editor-toolbar-host .toolbar-sep {
-  height: 18px;
-  margin: 0 3px;
-  border-inline-start: 1px solid var(--border-subtle);
+  height: 16px;
+  margin: 0 6px;
+  border-inline-start: 1px solid color-mix(in srgb, var(--text-secondary) 22%, transparent);
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .toolbar-sep + .toolbar-sep { display: none; }
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn--icon {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+}
+
+.theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn:disabled {
+  color: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+  background: transparent;
 }
 
 .theme-legacy .writing-page .toolbar-popover-anchor {
@@ -1208,10 +1222,13 @@
   flex: 0 0 auto;
   width: auto;
   margin: 0;
-  padding: 8px var(--authoring-manuscript-gutter);
+  padding: 10px max(var(--authoring-manuscript-gutter), calc((100% - var(--manuscript-measure, 880px)) / 2));
+  padding-inline-start: calc(max(var(--authoring-manuscript-gutter), calc((100% - var(--manuscript-measure, 880px)) / 2)) + 12px);
   border-top: 1px solid var(--authoring-hairline);
   background: var(--surface-workbench-raised);
-  color: color-mix(in srgb, var(--text-secondary) 82%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .theme-legacy .writing-page .dossier-footer-stat-divider {
@@ -2062,3 +2079,26 @@ body.is-writing-zen .ws-tabs {
 .writing-annotation :is(p,blockquote) { line-height: 1.8; }
 .writing-annotation-composer header button { display: grid; place-items: center; }
 @media (pointer: coarse) { .writing-annotation footer button { min-width: 44px; min-height: 44px; } }
+
+@media (min-width: 761px) and (pointer: fine) {
+  .theme-legacy .app-shell .shell-content .wall__cork {
+    --workspace-toolbar-height: 42px;
+    border-bottom: 1px solid var(--hairline-soft);
+  }
+  .theme-legacy .writing-page .authoring-editor-toolbar-host {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .editor-toolbar { gap: 4px; padding-inline: 10px 5px; }
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .tool-btn,
+  .theme-legacy .writing-page .wall__cork .authoring-assistant-entry,
+  .theme-legacy .writing-page .wall__tab--more {
+    min-height: 30px;
+    height: 30px;
+    padding-inline: 8px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .theme-legacy .writing-page .authoring-editor-toolbar-host .toolbar-sep { height: 15px; margin-inline: 4px; }
+  .theme-legacy .app-shell .workspace-writing-tools { padding-top: 42px; }
+}

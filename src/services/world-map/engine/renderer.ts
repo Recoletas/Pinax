@@ -4,6 +4,7 @@
  */
 
 import type { VoronoiMapData, LayerVisibility, BiomeOverride, MapStylePreset, Feature, PlateBoundary } from './types'
+import { drawTopographicSurface } from './topographic-surface'
 import { BIOMES } from './climate'
 import { computeBorderlands } from './borderlands'
 import { hillshadeAlpha } from './hillshade'
@@ -107,7 +108,7 @@ export function renderMap(
   for (const layer of pipeline) {
     if (!layer.enabled) continue
     if ((layers as unknown as Record<string, boolean | undefined>)[layer.name] === false) continue
-    drawPipelineLayer(ctx, data, style, biomeColors, width, height, kmPerPixel, layer)
+    drawPipelineLayer(ctx, data, style, biomeColors, width, height, kmPerPixel, layer, opts, layers)
   }
 
   // 老 layer 名（不在 pipeline 中）—— 保留向后兼容
@@ -165,8 +166,16 @@ function drawPipelineLayer(
   width: number,
   height: number,
   kmPerPixel: number,
-  layer: LayerSpec,
+  layer: LayerSpec, opts: RenderOptions, layers: LayerVisibility,
 ): void {
+  if ((opts.stylePreset ?? 'topographic') === 'topographic' && !opts.biomeOverrides?.length && layers.terrain) {
+    if (layer.name === 'terrain') {
+      drawTopographicSurface(ctx, data, Boolean(layers.hillshade),
+        shouldUseCoastlinePolygons(data) ? paint => buildCoastClipPath(paint, data) : undefined)
+      return
+    }
+    if (layer.name === 'hillshade') return
+  }
   switch (layer.name) {
     case 'hillshade': drawHillshade(ctx, data, style, layer.options); break
     case 'terrain': drawTerrain(ctx, data, style, biomeColors); break
@@ -228,7 +237,7 @@ export async function renderMapAsync(
   for (const layer of pipeline) {
     if (!layer.enabled) continue
     if ((layers as unknown as Record<string, boolean | undefined>)[layer.name] === false) continue
-    drawPipelineLayer(ctx, data, style, biomeColors, width, height, kmPerPixel, layer)
+    drawPipelineLayer(ctx, data, style, biomeColors, width, height, kmPerPixel, layer, opts, layers)
     await yieldToMain()
   }
 
@@ -254,20 +263,33 @@ function drawTerrain(
   const { width, height } = data
   const terrainColors = computeTerrainBaseColors(data, style, biomeColors)
 
-  ctx.fillStyle = style.oceanBg
-  ctx.fillRect(0, 0, width, height)
-
-  drawWaterCells(ctx, data, terrainColors)
+  // Sample the terrain tint at the density of the source cells. Upscaling
+  // blends adjacent tints; watercourses, coastlines and labels stay vector layers.
+  const sampleSpacing = Math.max(1, Math.sqrt(width * height / Math.max(1, data.cells.length)) / 2)
+  const tint = document.createElement('canvas')
+  tint.width = Math.max(1, Math.ceil(width / sampleSpacing))
+  tint.height = Math.max(1, Math.ceil(height / sampleSpacing))
+  const paint = tint.getContext('2d')!
+  paint.scale(tint.width / width, tint.height / height)
+  paint.lineWidth = 0.7 * width / tint.width
+  paint.fillStyle = style.oceanBg
+  paint.fillRect(0, 0, width, height)
+  drawWaterCells(paint, data, terrainColors)
 
   if (shouldUseCoastlinePolygons(data)) {
-    ctx.save()
-    buildCoastClipPath(ctx, data)
-    ctx.clip()
-    drawLandCells(ctx, data, terrainColors)
-    ctx.restore()
+    paint.save()
+    buildCoastClipPath(paint, data)
+    paint.clip()
+    drawLandCells(paint, data, terrainColors)
+    paint.restore()
   } else {
-    drawLandCells(ctx, data, terrainColors)
+    drawLandCells(paint, data, terrainColors)
   }
+  ctx.save()
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(tint, 0, 0, width, height)
+  ctx.restore()
 
   drawCoastalTerrainWash(ctx, data, style)
 }
@@ -320,6 +342,8 @@ function drawTerrainCell(
     else ctx.lineTo(vx, vy)
   }
   ctx.closePath()
+  ctx.strokeStyle = ctx.fillStyle
+  ctx.stroke()
   ctx.fill()
 }
 
@@ -564,15 +588,28 @@ function drawContinents(ctx: CanvasRenderingContext2D, data: VoronoiMapData, sty
 function drawRivers(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: StyleConfig): void {
   for (const river of data.rivers) {
     if (river.points.length < 2) continue
-    const polygon = buildRiverPolygon(river.points, river.widths)
+    let points = river.points
+    const last = river.cells.length - 1
+    const end = river.cells[last], bank = river.cells[last - 1]
+    if (data.cells.h[end] < 20 && data.cells.h[bank] >= 20) {
+      const edge = sharedCellIds(data.cells.v[end], data.cells.v[bank])
+      if (edge.length === 2) {
+        const [a, b] = edge
+        const xy = data.vertices.p
+        points = river.points.slice()
+        points[points.length - 1] = [(xy[2 * a] + xy[2 * b]) / 2, (xy[2 * a + 1] + xy[2 * b + 1]) / 2]
+      }
+    }
+    const polygon = buildRiverPolygon(points, river.widths)
     if (polygon.length < 4) continue
 
     ctx.fillStyle = style.river
     ctx.beginPath()
     ctx.moveTo(polygon[0][0], polygon[0][1])
-    for (let i = 1; i < polygon.length; i++) {
-      ctx.lineTo(polygon[i][0], polygon[i][1])
-    }
+    const bankLength = river.points.length
+    traceRiverBank(ctx, polygon, 0, bankLength)
+    ctx.lineTo(...polygon[bankLength])
+    traceRiverBank(ctx, polygon, bankLength, polygon.length)
     ctx.closePath()
     ctx.fill()
 
@@ -582,7 +619,7 @@ function drawRivers(ctx: CanvasRenderingContext2D, data: VoronoiMapData, style: 
       ctx.lineWidth = Math.max(0.35, maxWidth * 0.16)
       ctx.lineCap = 'round'
       ctx.lineJoin = 'round'
-      drawCenterline(ctx, river.points)
+      drawCenterline(ctx, points)
     }
   }
 }
@@ -1738,7 +1775,8 @@ function buildRiverPolygon(
     const len = Math.hypot(dx, dy) || 1
     const nx = -dy / len
     const ny = dx / len
-    const halfW = Math.max(0.65, (widths[i] || widths[Math.max(0, i - 1)] || 1) * 0.5)
+    const sourceTaper = 0.3 + 0.7 * Math.min(1, i / 3)
+    const halfW = sourceTaper * Math.max(0.65, (widths[i] || widths[Math.max(0, i - 1)] || 1) * 0.5)
     left.push([pts[i][0] + nx * halfW, pts[i][1] + ny * halfW])
     right.push([pts[i][0] - nx * halfW, pts[i][1] - ny * halfW])
   }
@@ -1749,13 +1787,17 @@ function drawCenterline(ctx: CanvasRenderingContext2D, pts: [number, number][]):
   if (pts.length < 2) return
   ctx.beginPath()
   ctx.moveTo(pts[0][0], pts[0][1])
-  for (let i = 1; i < pts.length - 1; i++) {
+  traceRiverBank(ctx, pts, 0, pts.length)
+  ctx.stroke()
+}
+
+function traceRiverBank(ctx: CanvasRenderingContext2D, pts: [number, number][], start: number, end: number): void {
+  for (let i = start + 1; i < end - 1; i++) {
     const mx = (pts[i][0] + pts[i + 1][0]) / 2
     const my = (pts[i][1] + pts[i + 1][1]) / 2
     ctx.quadraticCurveTo(pts[i][0], pts[i][1], mx, my)
   }
-  ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1])
-  ctx.stroke()
+  ctx.lineTo(...pts[end - 1])
 }
 
 function collectBorderSegmentGroups(data: VoronoiMapData): Map<string, BorderSegmentGroup> {

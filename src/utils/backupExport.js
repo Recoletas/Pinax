@@ -1,12 +1,15 @@
+import { isPackedWritingText, readRestoreComparison, readStoredText, writeStoredText } from '../services/storage/writingStorageCodec.js'
+import { isMirrorDeviceKey, mirrorEpochKey, mirrorRestoreBookIds } from '../services/storage/mirrorReceiptEpoch.js'
+import { captureStorageValue, isWritingChangesKey, reinstateStorageValue, releaseStorageValue, storageValueMatches } from '../services/storage/writingChapterStorage.js'
 import { STORAGE_KEYS } from '../composables/useStorage'
 import { buildLegacyMigrationBundle } from '../services/migration/legacyMigrationBundle'
 import { STORAGE_KEY_POLICY } from '../services/storage/storageKeyPolicy.js'
+import { sha256HexOfText } from '../services/storage/backupHash.js'
 import { downloadJsonFile, timestampForFilename } from './download'
 
 /**
  * localStorage key list belonging to Pinax that should be backed up.
- * Includes everything declared in STORAGE_KEYS plus a few undeclared
- * keys that some legacy code paths still write to.
+ * Machine-local mirror acknowledgements belong only to their current replica.
  */
 export const PINAX_BACKUP_KEYS = [
   STORAGE_KEYS.QUICK_NOTE_DRAFT,
@@ -97,6 +100,7 @@ export const PINAX_BACKUP_KEYS = [
 ]
 
 export const PINAX_BACKUP_DYNAMIC_PREFIXES = Object.freeze([
+  STORAGE_KEYS.WRITING_RECOVERY_DRAFTS + ':editor:',
   'pinax-project-directory:v1:',
   'worldbook_',
   'worldbook:brief:',
@@ -140,7 +144,7 @@ export function buildBackup({ storage = localStorage, includeSecrets = false } =
   let included = 0
   for (const key of getPinaxBackupKeys(storage)) {
     if (excludedSecrets.has(key)) continue
-    const raw = storage.getItem(key)
+    const raw = readStoredText(storage, key)
     if (raw === null) continue
     entries[key] = raw
     included++
@@ -249,7 +253,7 @@ function invalidRestorePlan(...reasons) {
  * Compare a parsed backup with current storage without writing anything.
  * The caller can show this plan before a later, explicit restore operation.
  */
-export function createRestorePlan(input, storage = localStorage) {
+export function createRestorePlan(input, storage = localStorage, { review = false, localPrior } = {}) {
   let backup = input
   if (typeof input === 'string') {
     try {
@@ -279,14 +283,28 @@ export function createRestorePlan(input, storage = localStorage) {
   const overwrite = []
   const skip = []
   const incompatible = []
+  const reviewed = []
 
   for (const key of Object.keys(backup.keys)) {
+    // A revision acknowledgement from another replica must never authorize
+    // the restored manuscript to overwrite this device's project files.
+    if (isMirrorDeviceKey(key) || isWritingChangesKey(key)) { skip.push(key); continue }
     const raw = backup.keys[key]
     if (typeof raw !== 'string') {
       incompatible.push(`键 ${key} 的值不是字符串`)
       continue
     }
-    const current = storage.getItem(key)
+    if (isPackedWritingText(key, raw)) {
+      incompatible.push(`键 ${key} 需要标准 JSON 备份内容`)
+      continue
+    }
+    const current = readRestoreComparison(storage, key)
+    localPrior?.set(key, current)
+    if (review) {
+      // The logical bookshelf includes every incremental chapter edit in the
+      // current generation. A physical root key alone cannot identify it.
+      reviewed.push([key, sha256HexOfText(JSON.stringify([current, raw]))])
+    }
     if (current === null) add.push(key)
     else if (current === raw) skip.push(key)
     else overwrite.push(key)
@@ -335,6 +353,7 @@ export function createRestorePlan(input, storage = localStorage) {
     memoryRevisionNotice,
     branchMetadataNotice,
     restoreWarnings,
+    ...(review ? { reviewRevision: sha256HexOfText(JSON.stringify([reviewed, restoreWarnings])) } : {}),
     requiresRiskConfirmation: restoreWarnings.length > 0
   }
 }
@@ -350,8 +369,9 @@ export function restoreBackup(input, {
   storage = localStorage,
   overwrite = true,
   acceptRestoreRisk = false,
+  expectedReviewRevision,
 } = {}) {
-  const plan = createRestorePlan(input, storage)
+  const plan = createRestorePlan(input, storage, { review: expectedReviewRevision !== undefined })
   if (!plan.valid) {
     return {
       success: false,
@@ -360,6 +380,9 @@ export function restoreBackup(input, {
       written: [],
       skipped: []
     }
+  }
+  if (expectedReviewRevision !== undefined && expectedReviewRevision !== plan.reviewRevision) {
+    return { success: false, reason: 'restore-review-changed', plan, written: [], skipped: [] }
   }
   if (plan.requiresRiskConfirmation && !acceptRestoreRisk) {
     return {
@@ -388,21 +411,60 @@ export function restoreBackup(input, {
     ...plan.skip,
     ...(!overwrite ? plan.overwrite : [])
   ]
-  const previous = new Map(keysToWrite.map((key) => [key, storage.getItem(key)]))
-  const written = []
+  const previous = new Map(keysToWrite.map((key) => [key, captureStorageValue(storage, key)]))
+  const written = new Map()
+  const epochs = new Map()
+  const shelf = STORAGE_KEYS.WRITING_BOOKS
+  const restoreId = globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const pendingEpoch = 'pending:' + restoreId
+
+  function checkUnchanged(key, expected) {
+    if (!storageValueMatches(storage, key, expected)) throw new Error(`恢复期间存储键已变化：${key}`)
+  }
+  function restorePrevious(key, value) {
+    reinstateStorageValue(storage, key, value)
+  }
 
   try {
+    if (previous.has(shelf) || plan.skip.includes(shelf)) {
+      const current = readRestoreComparison(storage, shelf)
+      if (!previous.has(shelf) && current !== backup.keys[shelf]) throw new Error('恢复期间书架已变化')
+      const affected = mirrorRestoreBookIds(storage, current, backup.keys[shelf])
+      for (const id of affected) {
+        const key = mirrorEpochKey(id)
+        const prior = storage.getItem(key)
+        storage.setItem(key, pendingEpoch)
+        epochs.set(key, { prior, ours: pendingEpoch })
+      }
+    }
     for (const key of keysToWrite) {
-      storage.setItem(key, backup.keys[key])
-      written.push(key)
+      checkUnchanged(key, previous.get(key))
+      written.set(key, writeStoredText(storage, key, backup.keys[key], { retainChapterChanges: true }))
+    }
+    // A request started during the replacement must not acknowledge either
+    // side of the bookshelf write. Publish its permanent epoch only on commit.
+    for (const [key, entry] of epochs) {
+      checkUnchanged(key, entry.ours)
+      storage.setItem(key, restoreId)
+      entry.ours = restoreId
     }
   } catch (error) {
     let rollbackFailed = false
-    for (const key of [...written].reverse()) {
+    let shelfRestored = true
+    for (const [key, physical] of [...written].reverse()) {
       try {
-        const oldValue = previous.get(key)
-        if (oldValue === null) storage.removeItem(key)
-        else storage.setItem(key, oldValue)
+        checkUnchanged(key, physical)
+        restorePrevious(key, previous.get(key))
+      } catch {
+        rollbackFailed = true
+        if (key === shelf) shelfRestored = false
+      }
+    }
+    for (const [key, entry] of epochs) {
+      try {
+        checkUnchanged(key, entry.ours)
+        if (shelfRestored) restorePrevious(key, entry.prior)
+        else storage.setItem(key, restoreId)
       } catch {
         rollbackFailed = true
       }
@@ -422,10 +484,11 @@ export function restoreBackup(input, {
     }
   }
 
+  for (const [key, oldValue] of previous) releaseStorageValue(storage, key, oldValue)
   return {
     success: true,
     plan,
-    written,
+    written: [...written.keys()],
     skipped,
     rolledBack: false
   }

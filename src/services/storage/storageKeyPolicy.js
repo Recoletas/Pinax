@@ -30,6 +30,7 @@ export const STORAGE_KEY_POLICY = Object.freeze({
   WRITING_RECOVERY_DRAFTS: 'project',
   WRITING_TYPOGRAPHY: 'preference',
   LOCAL_MIRROR_SETTINGS: 'preference',
+  LOCAL_MIRROR_RECEIPTS: 'disposable',
   AUTHORING_REVIEW_RUNS: 'project',
   NARRATIVE_ASSETS: 'project',
   MEMORY_CANDIDATES: 'project',

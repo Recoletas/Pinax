@@ -151,6 +151,42 @@ describe('authoring project worldbook binding', () => {
       .toMatchObject({ included: true, actualChars: foundation.text.length, cut: false })
     expect(generated.contextReconciliation).toEqual([])
 
+    const viewpoint = { ...projection, anchorStatus: 'inherited', viewpointCharacter: { id: 'lin', name: '林昭' },
+      time: { storyAt: 0 }, plannedCharacters: [{ id: 'secret', name: '尚未登场的暗探' }],
+      unresolvedEvents: [{ label: '刺杀者的秘密' }] }
+    let observations = [{ subject: '北门', predicate: '通行', object: '已经封锁', channel: 'heard', belief: null }]
+    const characterAdapter = createAuthoringRunSessionAdapter({ repositoryAdapters: {
+      worldbookRepository, liveTargetReader: target => ({ ...target, document, sceneProjection: viewpoint }),
+      readViewpointKnowledge: query => {
+        expect(query).toEqual({ projectId: invocationTarget.projectId, worldbookId: worldbook.id, actorId: 'lin', storyAt: 0 })
+        return observations
+      }
+    } })
+    worldbook.entries.push({ id: 'lin', type: 'character', name: '林昭', content: '作者保密的身份' })
+    const thought = { kind: 'thought', viewpointCharacterId: 'lin', operation: 'next-passage' }
+    const prepareThought = () => characterAdapter.prepareSession({ taskId: 'authoring.simulate.character',
+      request: { intent: { invocationTarget, turn: thought } } })
+    const privateRun = await prepareThought()
+    expect(privateRun.ok).toBe(true)
+    const privateSession = privateRun.session
+    await executor.executeTurn({ projectId: invocationTarget.projectId, intentMode: 'character',
+      projection: privateSession.sceneProjection, contextManifest: privateSession.manifest, turn: thought,
+      resolveLiveContextDependencies: () => characterAdapter.collectLiveDependencies(privateSession) })
+    const sent = Object.values(providerSerialization.serializedBlocks).join(' ')
+    expect(sent).toContain('听说（未表态）：北门 · 通行 · 已经封锁')
+    expect(sent).not.toMatch(/尚未登场的暗探|刺杀者的秘密|作者保密的身份|这座西幻港城/)
+    expect(createManifestAuthorizedNarrativeIndex({ manifest: privateSession.manifest, projectId: invocationTarget.projectId }).index.counts.world).toBe(0)
+    observations = []
+    expect(reconcileManifestDependencies(privateSession.manifest, await characterAdapter.collectLiveDependencies(privateSession)))
+      .toContainEqual(expect.objectContaining({ dependency: 'scene-projection', reason: 'revision-changed' }))
+    observations = null
+    expect(await prepareThought()).toMatchObject({ ok: false, reason: 'authoring-viewpoint-knowledge-unavailable' })
+    viewpoint.time = { label: '雨夜' }
+    const undated = await prepareThought()
+    expect(undated.session.manifest.blocks.find(block => block.kind === 'scene-projection').text).toContain('故事序号未定')
+    expect(JSON.stringify(undated.session.manifest.blocks)).not.toContain('作者保密的身份')
+    worldbook.entries.pop()
+
     const initialWorldbook = worldbook
     const revision = worldbookFoundationRevision(worldbook)
     worldbook = { ...initialWorldbook, updatedAt: 99, entries: [{ id: 'unused', content: '无关条目改动' }] }
@@ -486,7 +522,14 @@ localStorage.clear()
       text: '前置说明\n\n第一章 雨夜\n正文一。\n\n第二章 来客\n正文二。'
     })
     expect(plain.chapters.map((chapter) => chapter.title)).toEqual(['卷首', '第一章 雨夜', '第二章 来客'])
-    expect(buildSingleChapterPreview(plain)).toEqual([{ title: '正文', content: plain.text.trim() }])
+    expect(buildSingleChapterPreview(plain)).toEqual([{ title: '正文', content: '前置说明\n\n第一章 雨夜\n\n正文一。\n\n第二章 来客\n\n正文二。' }])
+
+    const novel = parseManuscriptText({
+      filename: '单换行稿件.txt',
+      text: '第一章 雨夜\r\n　　雨下了一夜。\r\n　　门开了。'
+    })
+    expect(novel.chapters[0].content).toBe('雨下了一夜。\n\n门开了。')
+    expect(buildSingleChapterPreview(novel)[0].content).toBe('第一章 雨夜\n\n雨下了一夜。\n\n门开了。')
 
     const imported = createImportedWritingBook({
       title: plain.title,

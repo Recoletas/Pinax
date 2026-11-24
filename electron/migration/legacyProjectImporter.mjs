@@ -127,20 +127,21 @@ export async function importLegacyProject(input, deps = {}) {
 
 async function validateOpenProject(root, database, plan, { requireComplete, expectedName }) {
   const manifest = await readProjectManifest(root)
-  if (!manifest?.projectId || manifest.name !== expectedName || database.schemaVersion !== DESKTOP_DATABASE_SCHEMA_VERSION) {
+  const validSchema = requireComplete ? database.schemaVersion >= 2 : database.schemaVersion === DESKTOP_DATABASE_SCHEMA_VERSION
+  if (!manifest?.projectId || manifest.name !== expectedName || !validSchema) {
     throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported manifest or schema is invalid')
   }
   const sqlite = checkDatabaseIntegrity(database)
-  if (sqlite.quickCheck !== 'ok' || sqlite.integrityCheck !== 'ok') {
+  if (sqlite.quickCheck !== 'ok' || sqlite.integrityCheck !== 'ok' || sqlite.foreignKeyViolation) {
     throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported SQLite database failed integrity checks')
   }
+  const items = database.listAllItems()
   assertExactRows(
-    database.listAllItems(),
+    items,
     plan.projectItems.map(databaseItem),
     'Imported project items do not match migration plan'
   )
-  const textRows = database.listTextItems()
-  if (textRows.length !== plan.textItems.length) {
+  if (items.filter(item => item.relativePath !== null).length !== plan.textItems.length) {
     throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported text item count does not match migration plan')
   }
   assertExactRows(
@@ -153,19 +154,20 @@ async function validateOpenProject(root, database, plan, { requireComplete, expe
     plan.targetMappings,
     'Import target mappings do not match migration plan'
   )
-  const legacyRows = database.listLegacyRecords()
-  if (legacyRows.length !== plan.legacyRecords.length) {
-    throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported compatibility record count does not match migration plan')
-  }
-  for (const expected of plan.legacyRecords) {
-    const actual = database.getLegacyRecord(expected.id)
-    if (!actual
+  // The plan and the SQL cursor both order by the ASCII migration id.
+  let count = 0
+  for (const actual of database.iterateLegacyRecords()) {
+    const expected = plan.legacyRecords[count++]
+    if (!expected || actual.id !== expected.id
       || actual.recordType !== expected.recordType
       || actual.sourceRecordId !== expected.sourceRecordId
       || actual.contentHash !== expected.contentHash
       || actual.jsonPayload !== expected.jsonPayload) {
-      throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported compatibility record hash does not match migration plan', { targetId: expected.id })
+      throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported compatibility record hash does not match migration plan', { targetId: actual.id })
     }
+  }
+  if (count !== plan.legacyRecords.length) {
+    throw migrationError(DESKTOP_ERROR_CODES.INTEGRITY_FAILED, 'Imported compatibility record count does not match migration plan')
   }
   for (const expected of plan.textItems) {
     const actual = await readProjectText(root, expected.relativePath)
@@ -189,7 +191,7 @@ async function validateOpenProject(root, database, plan, { requireComplete, expe
 async function validateCompletedProject(root, plan, expectedName) {
   let database
   try {
-    database = openProjectDatabase(join(root, '.pinax/project.sqlite'))
+    database = openProjectDatabase(join(root, '.pinax/project.sqlite'), { readOnly: true })
     await validateOpenProject(root, database, plan, { requireComplete: true, expectedName })
   } finally {
     if (database) closeProjectDatabase(database)

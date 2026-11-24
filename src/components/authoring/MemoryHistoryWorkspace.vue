@@ -1,40 +1,56 @@
 <script setup>
-import { computed, inject, onMounted, ref, watch } from 'vue'
+import { worldClaimLabel } from '../../services/memory/ledger/worldClaimLabel.js'
+import WorldTypedValueFields from './WorldTypedValueFields.vue'
+import { computed, defineAsyncComponent, inject, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { tr, uiLocale } from '../../i18n'
-import { loadWritingBooks } from '../../services/writing/writingBooksRepository'
-import { listMemoryCandidates, confirmMemoryCandidate, rejectMemoryCandidate, updateMemoryCandidate } from '../../services/memory/memoryCandidates'
-import { commitMemorySnapshot, flushMemoryHistory, readMemoryHistory, memoryHistoryHealth, historicalCandidatePatch } from '../../services/memory/memoryHistoryStore'
-import { openLedgerDb, readLedgerHealth, closeLedgerDb } from '../../services/memory/ledger/ledgerDb'
-import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection, listProposals, listDecisionsPaged, listRejectionMarks, getFactHead } from '../../services/memory/ledger/factLedger'
-import { queryFacts } from '../../services/memory/ledger/queryFacts'
+import { loadWritingBooksSnapshot } from '../../services/writing/writingBooksRepository'
+import { ensureCandidateHistoryBaselines, listMemoryCandidates, confirmMemoryCandidate, rejectMemoryCandidate, updateMemoryCandidate } from '../../services/memory/memoryCandidates'
+import { flushMemoryHistory, readMemoryHistory, readMemoryActivity, memoryHistoryHealth, historicalCandidatePatch } from '../../services/memory/memoryHistoryStore'
+import { readLedgerHealth, withLedgerDb } from '../../services/memory/ledger/ledgerDb'
+import { adoptProposal, correctFact, retractFact, rejectProposal, reopenRejection } from '../../services/memory/ledger/factLedger'
+import { readLedgerWorkspacePage } from '../../services/memory/ledger/ledgerWorkspaceQuery'
 import { listExtractionJobs, requeueExtractionJob } from '../../services/memory/extraction/extractionJobStore'
 import { payloadHash } from '../../services/memory/ledger/ledgerContract'
 import { previewLegacyMigration, migrateLegacyCandidate } from '../../services/memory/ledger/legacyMigration'
 import { auditEvidenceCurrentness } from '../../services/memory/ledger/evidenceAudit'
 
 const route = useRoute()
-const books = loadWritingBooks()
+const props = defineProps({ worldModelBookId: { type: String, default: '' } })
+const WorldForkWorkspace = defineAsyncComponent(() => import('./WorldForkWorkspace.vue'))
+const worldPanel = ref(null)
+const bookTitles = new Map(loadWritingBooksSnapshot().map(book => [book.id, book.title]))
 const items = ref([])
 const selectedScope = ref('')
 const view = ref('activity')
 const activity = ref([])
 const activityError = ref('')
+const limit = ref(30)
+const activityCursor = shallowRef(null)
+const loadingActivity = ref(false)
 let activityGeneration = 0
-async function refreshActivity() {
+async function readActivityPage(more = false) {
+  if (more && (!activityCursor.value || loadingActivity.value)) return
   const generation = ++activityGeneration
-  activity.value = []
+  const cursor = more ? activityCursor.value : null
+  if (!more) { activity.value = []; activityCursor.value = null }
+  if (!selectedScope.value || view.value !== 'activity') return
+  loadingActivity.value = true
   activityError.value = ''
-  if (!selectedScope.value) return
   try {
     const [scope, scopeId] = JSON.parse(selectedScope.value)
-    const rows = await readMemoryHistory({ scope, scopeId })
-    if (generation === activityGeneration) activity.value = rows
-  } catch (cause) { if (generation === activityGeneration) activityError.value = cause.message }
+    const result = await readMemoryActivity({ scope, scopeId, cursor })
+    if (generation !== activityGeneration) return
+    activity.value = more ? activity.value.concat(result.rows) : result.rows
+    activityCursor.value = result.nextCursor
+  } catch (cause) {
+    if (generation === activityGeneration) activityError.value = cause.message
+  } finally {
+    if (generation === activityGeneration) loadingActivity.value = false
+  }
 }
-watch([selectedScope, items], refreshActivity)
+watch([selectedScope, items, view], () => readActivityPage())
 const mode = ref('pending')
-const limit = ref(30)
 const history = ref([])
 const selectedId = ref('')
 const busy = ref(false)
@@ -44,14 +60,22 @@ const draft = ref('')
 const storyTime = ref('')
 const statuses = { pending: '待审阅', active: '已确认', stale: '已归档', rejected: '已拒绝' }
 const scopeKey = item => JSON.stringify([item.scope, item.scopeId || ''])
-const scopes = computed(() => [...new Map([
-  ...books.map(book => [JSON.stringify(['project', book.id]), { key: JSON.stringify(['project', book.id]), label: book.title || tr('未命名书稿') }]),
-  ...items.value.map(item => [scopeKey(item), {
-  key: scopeKey(item),
-  label: item.scope === 'global-author' ? tr('作者偏好') : item.scope === 'project'
-    ? books.find(book => book.id === item.scopeId)?.title || tr('未关联作品 · {id}', { id: item.scopeId || tr('缺少归属') })
-    : tr('会话 · {id}', { id: item.scopeId || tr('缺少归属') })
-}])]).values()])
+const scopes = computed(() => {
+  const choices = new Map()
+  for (const [id, title] of bookTitles) {
+    const key = JSON.stringify(['project', id])
+    choices.set(key, { key, label: title || tr('未命名书稿') })
+  }
+  for (const item of items.value) {
+    const key = scopeKey(item)
+    if (choices.has(key)) continue
+    const id = item.scopeId || tr('缺少归属')
+    const label = item.scope === 'global-author' ? tr('作者偏好')
+      : item.scope === 'project' ? tr('未关联作品 · {id}', { id }) : tr('会话 · {id}', { id })
+    choices.set(key, { key, label })
+  }
+  return [...choices.values()]
+})
 const filtered = computed(() => items.value.filter(item => scopeKey(item) === selectedScope.value && item.status === mode.value))
 const selected = computed(() => items.value.find(item => item.id === selectedId.value && scopeKey(item) === selectedScope.value))
 const health = ref({ pending: 0, error: '' })
@@ -70,28 +94,15 @@ function proposalStaleEvidenceIds(p) {
   if (!map) return []
   return (p.evidenceIds || []).filter(id => map[id])
 }
-async function refreshEvidenceCurrentness() {
-  evidenceCurrentnessById.value = null
-  staleConfirmProposalId.value = ''
-  if (typeof sourceRevisionsProvider !== 'function' || !ledgerScope.value) return
-  try {
-    const state = await sourceRevisionsProvider(ledgerScope.value)
-    if (!state || typeof state !== 'object') return
-    const opened = await openLedgerDb()
-    if (!opened.ok) return
-    const audit = await auditEvidenceCurrentness(opened.db, {
-      scope: ledgerScope.value,
-      currentRevisions: state.currentRevisions || {},
-      sourceDeleted: state.sourceDeleted || []
-    })
-    closeLedgerDb(opened.db)
-    if (!audit.ok) return
-    const map = {}
-    for (const item of audit.items) map[item.evidenceId] = item.status
-    evidenceCurrentnessById.value = map
-  } catch {
-    evidenceCurrentnessById.value = null
-  }
+async function proposalEvidenceStatus(db, scope, generation) {
+  if (typeof sourceRevisionsProvider !== 'function') return null
+  const state = await sourceRevisionsProvider(scope)
+  if (!state || generation !== ledgerLoadGeneration) return null
+  const audit = await auditEvidenceCurrentness(db, {
+    scope, currentRevisions: state.currentRevisions || {}, sourceDeleted: state.sourceDeleted || []
+  })
+  if (!audit.ok) throw new Error(audit.detail || audit.reason)
+  return Object.fromEntries(audit.items.map(item => [item.evidenceId, item.status]))
 }
 const ledger = ref({
   ready: false,
@@ -111,11 +122,14 @@ const ledger = ref({
   storyOrdinal: '',
   editingProposalId: '',
   editedObject: '',
-  correctingFactKey: '',
+  editedLiteral: null,
+  correctingVersionId: '',
   correctedObject: '',
+  correctedLiteral: null,
   correctionReason: '',
-  decisionsCursor: null,
-  decisionsLoadingMore: false,
+  cursor: null,
+  loadingMore: false,
+  scanLimited: false,
   extractionJobs: [],
   migrationOpen: false,
   migration: null
@@ -148,23 +162,6 @@ const decisionGroups = computed(() => {
   }).sort((left, right) => right.latestSeq - left.latestSeq)
 })
 
-async function loadMoreDecisions() {
-  if (!ledger.value.decisionsCursor || ledger.value.decisionsLoadingMore) return
-  ledger.value.decisionsLoadingMore = true
-  const opened = await openLedgerDb({ openTimeoutMs: 1500 })
-  if (opened.ok) {
-    const page = await listDecisionsPaged(opened.db, {
-      scope: ledgerScope.value,
-      cursor: ledger.value.decisionsCursor,
-      limit: 50
-    })
-    if (page.ok) {
-      ledger.value.decisions = [...ledger.value.decisions, ...page.items]
-      ledger.value.decisionsCursor = page.nextCursor || null
-    }
-  }
-  ledger.value.decisionsLoadingMore = false
-}
 const decisionLabels = {
   'adopt-proposal': '接受为事实',
   'correct-fact': '更正',
@@ -253,97 +250,95 @@ const recordedAsOfFromInput = computed(() => {
 })
 
 let ledgerLoadGeneration = 0
+let activeQuery = null
+function factFilters() {
+  const storyAt = storyAtFromInput.value
+  const recordedAsOf = recordedAsOfFromInput.value
+  return {
+    recordedAsOf: recordedAsOf?.invalid ? null : recordedAsOf,
+    storyAt: storyAt?.invalid ? null : storyAt,
+    timeline: storyAt && !storyAt.invalid ? { id: storyAt.timelineId, eras: [{ id: storyAt.eraId, order: 1 }] } : null
+  }
+}
+
+function recentExtractionJobs(scope) {
+  if (scope.domain !== 'book') return []
+  return listExtractionJobs({ projectId: scope.bookId }).slice(0, 8).map(job => ({
+    id: job.id, status: job.status,
+    retryable: ['failed', 'cancelled', 'source-changed', 'no-fact'].includes(job.status),
+    blocks: job.blocks.length, attempts: job.attempts || 0, rejected: job.rejected || [],
+    error: job.lastError ? `${job.lastError.code}: ${job.lastError.message}` : '',
+    proposalCount: job.proposalIds?.length || 0, unextractableReason: job.unextractableReason || ''
+  }))
+}
+
+function showLedgerPage(query, page, append) {
+  const state = ledger.value
+  state[query.view] = append ? state[query.view].concat(page.items) : page.items
+  state.cursor = page.nextCursor || null
+  if (page.evidence) for (const [id, row] of page.evidence) state.evidenceById.set(id, row)
+  if (query.view === 'proposals') state.rejections = page.rejections
+  if (query.view === 'facts') {
+    state.scanLimited = page.completeness === 'partial-scan-limit'
+    state.audit = page.excludedReasonCounts
+    state.snapshotVersion = page.snapshotVersion
+  }
+}
+
 async function loadLedger() {
   const generation = ++ledgerLoadGeneration
-  const scope = ledgerScope.value
-  // Clear previous book data immediately; late queries cannot repopulate it.
-  ledger.value.proposals = []
-  ledger.value.facts = []
-  ledger.value.decisions = []
-  ledger.value.rejections = []
-  ledger.value.evidenceById = new Map()
-  const opened = await openLedgerDb({ openTimeoutMs: 1500 })
-  if (!opened.ok) {
-    if (generation !== ledgerLoadGeneration) return
-    ledger.value.ready = false
-    ledger.value.unavailable = opened.detail || opened.reason
+  activeQuery = null
+  Object.assign(ledger.value, {
+    ready: false, unavailable: '', cursor: null, loadingMore: false, scanLimited: false,
+    proposals: [], facts: [], decisions: [], rejections: [], evidenceById: new Map(),
+    audit: {}, health: null, snapshotVersion: null, extractionJobs: [],
+    editingProposalId: '', correctingVersionId: ''
+  })
+  evidenceCurrentnessById.value = null
+  staleConfirmProposalId.value = ''
+  if (view.value !== 'facts' || !ledgerScope.value) return
+  if (ledger.value.view === 'world') {
+    ledger.value.ready = true
     return
   }
-  const db = opened.db
+  const query = { scope: ledgerScope.value, view: ledger.value.view, filters: factFilters() }
   try {
-    const health = await readLedgerHealth(db)
-    if (generation !== ledgerLoadGeneration) return
-    ledger.value.health = health
-    const extractionScopeBook = ledgerScope.value && ledgerScope.value.domain === 'book' ? ledgerScope.value.bookId : ''
-    ledger.value.extractionJobs = listExtractionJobs({ projectId: extractionScopeBook })
-      .slice(0, 8)
-      .map(job => ({
-        id: job.id,
-        status: job.status,
-        retryable: ['failed', 'cancelled', 'source-changed', 'no-fact'].includes(job.status),
-        blocks: job.blocks.length,
-        attempts: job.attempts || 0,
-        rejected: job.rejected || [],
-        error: job.lastError ? `${job.lastError.code}: ${job.lastError.message}` : '',
-        proposalCount: job.proposalIds?.length || 0,
-        unextractableReason: job.unextractableReason || ''
-      }))
-    if (!scope) {
+    await withLedgerDb(async db => {
+      if (generation !== ledgerLoadGeneration) return
+      const [health, page] = await Promise.all([readLedgerHealth(db), readLedgerWorkspacePage(db, query)])
+      if (generation !== ledgerLoadGeneration) return
+      if (!page.ok) throw new Error(page.detail || page.reason)
+      const currentness = query.view === 'proposals' && page.evidence.size
+        ? await proposalEvidenceStatus(db, query.scope, generation) : null
+      if (generation !== ledgerLoadGeneration) return
+      evidenceCurrentnessById.value = currentness
+      activeQuery = query
+      showLedgerPage(query, page, false)
+      if (query.view === 'facts') ledger.value.extractionJobs = recentExtractionJobs(query.scope)
+      ledger.value.health = health
       ledger.value.ready = true
-      ledger.value.unavailable = ''
-      ledger.value.proposals = []
-      ledger.value.facts = []
-      ledger.value.decisions = []
-      return
-    }
-    const [pendingProposals, decisionPage, marks] = await Promise.all([
-      listProposals(db, { scope, status: 'pending' }),
-      listDecisionsPaged(db, { scope, limit: 50 }),
-      listRejectionMarks(db, { scope })
-    ])
-    const query = await queryFacts(db, {
-      scope,
-      recordedAsOf: recordedAsOfFromInput.value && !recordedAsOfFromInput.value.invalid ? recordedAsOfFromInput.value : null,
-      storyAt: storyAtFromInput.value && !storyAtFromInput.value.invalid ? storyAtFromInput.value : null,
-      timeline: storyAtFromInput.value && !storyAtFromInput.value.invalid ? {
-        id: storyAtFromInput.value.timelineId,
-        eras: [{ id: storyAtFromInput.value.eraId, order: 1 }]
-      } : null
-    })
-    // M11：事实卡也要展示来源——证据集合并入本轮查询到的正式事实引用的证据。
-    const factItems = query.ok ? query.items : []
-    const evidenceIds = [...new Set([
-      ...pendingProposals.flatMap(p => p.evidenceIds),
-      ...factItems.flatMap(f => f.evidenceIds || [])
-    ])]
-    const evidenceRows = evidenceIds.length ? await db.table('evidenceSnapshots').bulkGet(evidenceIds) : []
-    if (generation !== ledgerLoadGeneration) return
-    const evidenceById = new Map()
-    for (const row of evidenceRows) if (row) evidenceById.set(row.id, row)
-    ledger.value.ready = true
-    ledger.value.unavailable = ''
-    ledger.value.proposals = pendingProposals
-    ledger.value.decisions = decisionPage.items || []
-    void refreshEvidenceCurrentness()
-    ledger.value.decisionsCursor = decisionPage.nextCursor || null
-    ledger.value.rejections = marks
-    ledger.value.evidenceById = evidenceById
-    if (query.ok) {
-      ledger.value.facts = query.items
-      ledger.value.audit = query.excludedReasonCounts
-      ledger.value.snapshotVersion = query.snapshotVersion
-    } else {
-      ledger.value.facts = []
-      ledger.value.audit = {}
-      ledger.value.snapshotVersion = null
-    }
+    }, { openTimeoutMs: 1500 })
   } catch (cause) {
-    if (generation === ledgerLoadGeneration) {
-      ledger.value.ready = false
-      ledger.value.unavailable = cause.message || tr("读取失败")
-    }
+    if (generation === ledgerLoadGeneration) ledger.value.unavailable = cause.message || tr('读取失败')
+  }
+}
+watch([view, selectedScope, () => ledger.value.view], loadLedger)
+onUnmounted(() => { ledgerLoadGeneration++; activityGeneration++ })
+
+async function loadMoreLedgerRows() {
+  const query = activeQuery
+  const cursor = ledger.value.cursor
+  if (!query || !cursor || ledger.value.loadingMore) return
+  ledger.value.loadingMore = true
+  try {
+    const page = await withLedgerDb(db => readLedgerWorkspacePage(db, { ...query, cursor }), { openTimeoutMs: 1500 })
+    if (activeQuery !== query) return
+    if (!page.ok) throw new Error(page.detail || page.reason)
+    showLedgerPage(query, page, true)
+  } catch (cause) {
+    if (activeQuery === query) error.value = cause.message
   } finally {
-    closeLedgerDb(db)
+    if (activeQuery === query) ledger.value.loadingMore = false
   }
 }
 
@@ -352,9 +347,15 @@ function toggleMigration() {
   if (ledger.value.migrationOpen) ledger.value.migration = previewLegacyMigration()
 }
 
+function evidenceKind(id) {
+  const kind = ledger.value.evidenceById.get(id)?.sourceKind
+  return tr(({ 'manual-assertion': '手动断言', 'fork-fact': '试写分支事实版本', 'legacy-candidate': '旧版候选' })[kind] || '章节原句')
+}
+
 function beginEditProposal(p) {
   ledger.value.editingProposalId = p.id
   ledger.value.editedObject = p.object
+  ledger.value.editedLiteral = p.literalValue ?? null
 }
 
 function cancelEditProposal() {
@@ -363,7 +364,8 @@ function cancelEditProposal() {
 }
 
 async function acceptProposal(p, { manualAssertion = false, forceStaleEvidence = false } = {}) {
-  if (!ledgerScope.value || busy.value) return
+  const scope = ledgerScope.value
+  if (!scope || busy.value) return
   // M06：证据来源已变化且未显式确认 → 先停在警告，不放行。
   if (!forceStaleEvidence && proposalStaleEvidenceIds(p).length) {
     staleConfirmProposalId.value = p.id
@@ -375,20 +377,20 @@ async function acceptProposal(p, { manualAssertion = false, forceStaleEvidence =
   feedback.value = ''
   try {
     const object = ledger.value.editingProposalId === p.id ? ledger.value.editedObject.trim() : ''
-    const opened = await openLedgerDb()
-    if (!opened.ok) throw new Error(opened.detail || opened.reason)
-    const result = await adoptProposal(opened.db, {
-      scope: ledgerScope.value,
+    const editTyped = ledger.value.editingProposalId === p.id && p.literalValue
+    if (editTyped && !ledger.value.editedLiteral) return
+    const edit = editTyped ? { literalValue: ledger.value.editedLiteral } : { object: object || null }
+    const result = await withLedgerDb(db => adoptProposal(db, {
+      scope,
       proposalId: p.id,
-      commandId: `ui-adopt:${p.id}:${payloadHash({ object })}`,
-      object: object || null,
+      commandId: `ui-adopt:${p.id}:${payloadHash(editTyped ? edit : { object })}`,
+      ...edit,
       actorRef: 'memory-workspace',
       manualAssertion,
       // M06：来源现时性由外部接线（资料区状态）时透传；显式确认才放行旧引用。
       evidenceCurrentness: evidenceCurrentnessById.value,
       allowStaleEvidence: forceStaleEvidence === true
-    })
-    closeLedgerDb(opened.db)
+    }))
     if (!result.ok) {
       if (result.reason === 'rejection-active') feedback.value = tr("该主张此前被拒绝且来源未变；请先在“被拒绝的主张”中显式重新开启。")
       else if (result.reason === 'evidence-missing') feedback.value = tr("缺少来源证据：AI 提炼不能直接提升为事实；可先补章节引文，或经“修改后接受”以手动断言明确记录为作者录入。")
@@ -408,20 +410,18 @@ async function acceptProposal(p, { manualAssertion = false, forceStaleEvidence =
 }
 
 async function dismissProposal(p) {
-  if (!ledgerScope.value || busy.value) return
+  const scope = ledgerScope.value
+  if (!scope || busy.value) return
   busy.value = true
   error.value = ''
   feedback.value = ''
   try {
-    const opened = await openLedgerDb()
-    if (!opened.ok) throw new Error(opened.detail || opened.reason)
-    const result = await rejectProposal(opened.db, {
-      scope: ledgerScope.value,
+    const result = await withLedgerDb(db => rejectProposal(db, {
+      scope,
       proposalId: p.id,
       commandId: `ui-reject:${p.id}`,
       actorRef: 'memory-workspace'
-    })
-    closeLedgerDb(opened.db)
+    }))
     feedback.value = result.ok ? tr('已拒绝；相同内容与来源的重复提案将被抑制。') : tr('拒绝失败：{reason}', { reason: result.reason })
   } catch (cause) {
     error.value = cause.message
@@ -432,20 +432,18 @@ async function dismissProposal(p) {
 }
 
 async function reopen(mark) {
-  if (!ledgerScope.value || busy.value) return
+  const scope = ledgerScope.value
+  if (!scope || busy.value) return
   busy.value = true
   error.value = ''
   feedback.value = ''
   try {
-    const opened = await openLedgerDb()
-    if (!opened.ok) throw new Error(opened.detail || opened.reason)
-    const result = await reopenRejection(opened.db, {
-      scope: ledgerScope.value,
+    const result = await withLedgerDb(db => reopenRejection(db, {
+      scope,
       rejectionMarkId: mark.id,
       commandId: `ui-reopen:${mark.id}`,
       actorRef: 'memory-workspace'
-    })
-    closeLedgerDb(opened.db)
+    }))
     feedback.value = result.ok ? tr('已重新开启；来源变更后的相同主张可以再次审阅。') : tr('重新开启失败：{reason}', { reason: result.reason })
   } catch (cause) {
     error.value = cause.message
@@ -456,36 +454,36 @@ async function reopen(mark) {
 }
 
 function beginCorrect(fact) {
-  ledger.value.correctingFactKey = fact.factKey
+  ledger.value.correctingVersionId = fact.factVersionId
   ledger.value.correctedObject = fact.object
+  ledger.value.correctedLiteral = fact.literalValue ?? null
   ledger.value.correctionReason = ''
 }
 
 function cancelCorrect() {
-  ledger.value.correctingFactKey = ''
+  ledger.value.correctingVersionId = ''
   ledger.value.correctedObject = ''
   ledger.value.correctionReason = ''
 }
 
 async function submitCorrection(fact) {
-  if (!ledgerScope.value || busy.value) return
+  const scope = ledgerScope.value
+  if (!scope || busy.value) return
   busy.value = true
   error.value = ''
   feedback.value = ''
   try {
-    const opened = await openLedgerDb()
-    if (!opened.ok) throw new Error(opened.detail || opened.reason)
-    const head = await getFactHead(opened.db, { scope: ledgerScope.value, factKey: fact.factKey })
-    const result = await correctFact(opened.db, {
-      scope: ledgerScope.value,
+    if (fact.literalValue && !ledger.value.correctedLiteral) return
+    const edit = fact.literalValue ? { literalValue: ledger.value.correctedLiteral } : { object: ledger.value.correctedObject.trim() }
+    const result = await withLedgerDb(db => correctFact(db, {
+      scope,
       factKey: fact.factKey,
-      object: ledger.value.correctedObject.trim(),
-      expectedHead: head?.id || null,
-      commandId: `ui-correct:${fact.factKey}:${head?.id || ''}:${payloadHash({ object: ledger.value.correctedObject.trim() })}`,
+      ...edit,
+      expectedHead: fact.factVersionId,
+      commandId: `ui-correct:${fact.factKey}:${fact.factVersionId}:${payloadHash(edit)}`,
       actorRef: 'memory-workspace',
       reason: ledger.value.correctionReason.trim()
-    })
-    closeLedgerDb(opened.db)
+    }))
     if (!result.ok) {
       if (result.reason === 'head-conflict') feedback.value = tr("事实已在别处更新（与您看到的版本不一致）；请刷新后再试。")
       else if (result.reason === 'no-change') feedback.value = tr("内容没有变化，不会生成无意义的修订。")
@@ -503,23 +501,20 @@ async function submitCorrection(fact) {
 }
 
 async function submitRetract(fact) {
-  if (!ledgerScope.value || busy.value) return
+  const scope = ledgerScope.value
+  if (!scope || busy.value) return
   busy.value = true
   error.value = ''
   feedback.value = ''
   try {
-    const opened = await openLedgerDb()
-    if (!opened.ok) throw new Error(opened.detail || opened.reason)
-    const head = await getFactHead(opened.db, { scope: ledgerScope.value, factKey: fact.factKey })
-    const result = await retractFact(opened.db, {
-      scope: ledgerScope.value,
+    const result = await withLedgerDb(db => retractFact(db, {
+      scope,
       factKey: fact.factKey,
-      expectedHead: head?.id || null,
-      commandId: `ui-retract:${fact.factKey}:${head?.id || ''}`,
+      expectedHead: fact.factVersionId,
+      commandId: `ui-retract:${fact.factKey}:${fact.factVersionId}`,
       actorRef: 'memory-workspace',
       reason: '作者撤回'
-    })
-    closeLedgerDb(opened.db)
+    }))
     if (!result.ok) {
       if (result.reason === 'head-conflict') feedback.value = tr("事实已在别处更新；请刷新后再试。")
       else error.value = tr('撤回失败：{reason}', { reason: result.reason })
@@ -540,9 +535,7 @@ async function migrateCandidate(claimable) {
   error.value = ''
   feedback.value = ''
   try {
-    const opened = await openLedgerDb()
-    if (!opened.ok) throw new Error(opened.detail || opened.reason)
-    const result = await migrateLegacyCandidate(opened.db, {
+    const result = await withLedgerDb(db => migrateLegacyCandidate(db, {
       candidate: {
         id: claimable.id,
         scope: claimable.scope?.domain === 'author' ? 'global-author' : 'project',
@@ -555,8 +548,7 @@ async function migrateCandidate(claimable) {
       },
       commandId: `ui-migrate:${claimable.id}`,
       actorRef: 'memory-workspace'
-    })
-    closeLedgerDb(opened.db)
+    }))
     if (!result.ok) throw new Error(result.reason)
     feedback.value = result.replay ? tr("该旧记忆此前已迁入，未重复生成事实。") : tr("已迁入为正式事实；原候选保留不变。")
     ledger.value.migration = previewLegacyMigration()
@@ -577,8 +569,7 @@ async function initialize() {
   busy.value = true
   error.value = ''
   try {
-    reload()
-    if (!commitMemorySnapshot(items.value)) throw new Error(tr("本地存储不足，旧记忆尚未迁移，请先备份"))
+    if (!ensureCandidateHistoryBaselines()) throw new Error(tr("本地存储不足，旧记忆尚未迁移，请先备份"))
     await flushMemoryHistory()
   } catch (cause) { error.value = cause.message }
   finally {
@@ -587,10 +578,13 @@ async function initialize() {
     if (!selectedScope.value) selectedScope.value = preferred?.key || scopes.value[0]?.key || ''
     busy.value = false
   }
-  await loadLedger()
 }
 
-function changeScope() { selectedId.value = ''; history.value = []; limit.value = 30; feedback.value = ''; return loadLedger() }
+function changeScope() {
+  selectedId.value = ''; history.value = []; limit.value = 30; feedback.value = ''
+  ledger.value.migrationOpen = false; ledger.value.migration = null
+  if (ledger.value.view === 'world' && !bookTitles.has(ledgerScope.value?.bookId)) ledger.value.view = 'proposals'
+}
 
 async function inspect(item) {
   busy.value = true
@@ -633,11 +627,21 @@ function restore(row) {
   return apply(() => updateMemoryCandidate(selected.value.id, historicalCandidatePatch(row)))
 }
 
-onMounted(initialize)
+onMounted(() => { if (!props.worldModelBookId) initialize() })
 </script>
 
 <template>
-  <div class="memory-workspace" :aria-label="tr(&quot;记忆与历史&quot;)">
+  <section v-if="worldModelBookId" class="memory-workspace" data-test="book-world-workspace">
+    <h2>{{ tr('小说世界模型') }}</h2>
+    <template v-if="bookTitles.has(worldModelBookId)">
+      <div class="memory-workspace__controls"><strong>{{ bookTitles.get(worldModelBookId) || tr('未命名书稿') }}</strong>
+        <button @click="worldPanel?.refresh()">{{ tr('刷新') }}</button>
+      </div>
+      <WorldForkWorkspace :key="worldModelBookId" ref="worldPanel" :scope="{ domain: 'book', bookId: worldModelBookId }" />
+    </template>
+    <p v-else role="status">{{ tr('这本书已不存在。') }}</p>
+  </section>
+  <div v-else class="memory-workspace" :aria-label="tr(&quot;记忆与历史&quot;)">
     <h2>{{ tr("记忆与历史") }}</h2>
     <p class="memory-workspace__hint">{{ tr("记忆变更自动记录，无需逐条审阅。只有 AI 提炼的候选需要确认，才会作为可信记忆使用。") }}</p>
     <nav class="memory-workspace__views" :aria-label="tr(&quot;记忆视图&quot;)">
@@ -652,14 +656,14 @@ onMounted(initialize)
     </div>
     <section v-if="view === 'activity'" :aria-label="tr(&quot;自动记录的记忆修订&quot;)">
       <p class="memory-workspace__hint">{{ tr("这里记录记忆的创建与修改，不是正文版本。正文修订在工作台「批注 → 版本」中。旧数据只能保留迁移时快照，不重建不存在的历史。") }}</p>
-      <p v-if="activityError" role="alert">{{ activityError }} <button @click="refreshActivity">{{ tr("重试") }}</button></p>
+      <p v-if="activityError" role="alert">{{ activityError }} <button @click="readActivityPage(Boolean(activityCursor))">{{ tr("重试") }}</button></p>
       <p v-else-if="!activity.length">{{ tr("当前作品尚无已归档的记忆变更。") }}</p>
-      <article v-for="row in activity.slice(0, limit)" :key="row.id" class="memory-workspace__item">
+      <article v-for="row in activity" :key="row.id" class="memory-workspace__item">
         <small>{{ formatRecordedAt(row.recordedAt) }} · {{ row.operation === 'created' ? tr("创建") : row.operation === 'legacy-baseline' ? tr("迁移快照") : tr("修改") }}</small>
         <p>{{ row.after.content }}</p>
         <details v-if="row.before"><summary>{{ tr("查看修改前") }}</summary><p>{{ row.before.content }}</p></details>
       </article>
-      <button v-if="activity.length > limit" @click="limit += 30">{{ tr("显示更多") }}</button>
+      <button v-if="activityCursor" :disabled="loadingActivity" @click="readActivityPage(true)">{{ tr("显示更多") }}</button>
     </section>
     <template v-if="view === 'candidates'">
     <p v-if="!filtered.length && !busy">{{ tr('此范围内没有所选状态的记忆。') }}</p>
@@ -691,24 +695,26 @@ onMounted(initialize)
 
     <section v-if="view === 'facts'" class="memory-ledger" :aria-label="tr(&quot;事实账本&quot;)">
       <h2>{{ tr("事实账本") }}</h2>
-      <p class="memory-workspace__hint">{{ tr("正式事实与候选分开存放：这里只显示作者显式接受的世界/作品事实。每次接受、更正、撤回都有决定记录；“故事时间”是故事内时刻，“记录截至”是作者当时的认知，两者互不代表。") }}</p>
+      <p v-if="ledger.view !== 'world'" class="memory-workspace__hint">{{ tr("正式事实与候选分开存放：这里只显示作者显式接受的世界/作品事实。每次接受、更正、撤回都有决定记录；“故事时间”是故事内时刻，“记录截至”是作者当时的认知，两者互不代表。") }}</p>
       <p v-if="ledger.unavailable" role="alert">{{ tr('事实账本暂不可用：{reason}', { reason: ledger.unavailable }) }} <button :disabled="busy" @click="loadLedger">{{ tr("重试") }}</button> {{ tr('（数据未被改动或删除）') }}</p>
       <template v-else>
         <p v-if="!ledgerScope" class="memory-workspace__hint">{{ tr("当前归属（会话记忆）暂不能登记正式事实；请选择一本书或作者偏好。") }}</p>
         <p v-else-if="ledger.health" class="memory-workspace__hint">{{ tr('数据库正常：正式事实 {facts} 条 · 决定记录 {decisions} 条 · 旧历史修订 {revisions} 条。', { facts: ledger.health.factVersionCount, decisions: ledger.health.decisionCount, revisions: ledger.health.v1RevisionCount }) }}</p>
         <div class="memory-workspace__controls">
-          <label>{{ tr("视图") }} <select v-model="ledger.view" :disabled="busy || !ledgerScope" @change="loadLedger">
+          <label>{{ tr("视图") }} <select v-model="ledger.view" :disabled="busy || !ledgerScope">
             <option value="proposals">{{ tr("待审核提案") }}</option>
             <option value="facts">{{ tr("当前事实") }}</option>
             <option value="decisions">{{ tr("决定记录") }}</option>
+            <option v-if="bookTitles.has(ledgerScope?.bookId)" value="world">{{ tr("小说世界模型") }}</option>
           </select></label>
-          <button :disabled="busy || !ledgerScope" @click="loadLedger">{{ tr("刷新") }}</button>
+          <button :disabled="busy || !ledgerScope" @click="ledger.view === 'world' ? worldPanel?.refresh() : loadLedger()">{{ tr("刷新") }}</button>
         </div>
 
-        <template v-if="ledger.view === 'proposals' && ledgerScope">
+        <p v-if="ledgerScope && !ledger.ready" role="status">{{ tr("加载中…") }}</p>
+        <template v-else-if="ledger.view === 'proposals' && ledgerScope">
           <p v-if="!ledger.proposals.length" class="memory-workspace__hint">{{ tr("没有待审核提案。") }}</p>
           <article v-for="p in ledger.proposals" :key="p.id" class="memory-ledger__card">
-            <p><strong>{{ p.subjectLabel || p.subjectKey }}</strong> · {{ p.predicate }} · {{ p.object }}</p>
+            <p>{{ worldClaimLabel(p) }}</p>
             <small>{{ originLabels[p.origin] ? tr(originLabels[p.origin]) : p.origin }} {{ tr("· 提案来源版本：") }}{{ p.sourceRevision || tr("无") }} · {{ describeInterval(p.storyInterval) }}</small>
             <div v-if="p.temporalPlanV1 && (p.temporalPlanV1.closes.length || p.temporalPlanV1.conflicts.length)" class="memory-ledger__evidence" data-test="temporal-plan">
               <p v-if="p.temporalPlanV1.closes.length" class="memory-workspace__hint">
@@ -721,7 +727,7 @@ onMounted(initialize)
             </div>
             <div v-if="p.evidenceIds.length" class="memory-ledger__evidence">
               <details v-for="evidenceId in p.evidenceIds" :key="evidenceId">
-                <summary>{{ tr('来源引文：{kind} · 版本 {revision}', { kind: tr(ledger.evidenceById.get(evidenceId)?.sourceKind === 'manual-assertion' ? '手动断言' : '章节原句'), revision: ledger.evidenceById.get(evidenceId)?.sourceRevision || tr('无') }) }}</summary>
+                <summary>{{ tr('来源引文：{kind} · 版本 {revision}', { kind: evidenceKind(evidenceId), revision: ledger.evidenceById.get(evidenceId)?.sourceRevision || tr('无') }) }}</summary>
                 <blockquote>{{ ledger.evidenceById.get(evidenceId)?.quote || tr("（无冻结引文）") }}</blockquote>
               </details>
             </div>
@@ -741,9 +747,10 @@ onMounted(initialize)
               </template>
             </div>
             <div v-if="ledger.editingProposalId === p.id" class="memory-ledger__form">
-              <label>{{ tr("修改后的内容") }}<textarea v-model="ledger.editedObject" rows="2" /></label>
+              <WorldTypedValueFields v-if="p.literalValue" :type="p.literalValue.type" :initial="p.literalValue" @change="ledger.editedLiteral = $event" />
+              <label v-else>{{ tr("修改后的内容") }}<textarea v-model="ledger.editedObject" rows="2" /></label>
               <div class="memory-workspace__controls">
-                <button :disabled="busy || !ledger.editedObject.trim()" @click="acceptProposal(p)">{{ tr("以此内容接受") }}</button>
+                <button :disabled="busy || !(p.literalValue ? ledger.editedLiteral : ledger.editedObject.trim())" @click="acceptProposal(p)">{{ tr("以此内容接受") }}</button>
                 <button v-if="p.origin === 'author' && !p.evidenceIds.length" :disabled="busy" @click="acceptProposal(p, { manualAssertion: true })">{{ tr("按作者手动断言接受") }}</button>
                 <button :disabled="busy" @click="cancelEditProposal">{{ tr("取消") }}</button>
               </div>
@@ -783,11 +790,11 @@ onMounted(initialize)
           </details>
           <p v-if="!ledger.facts.length" class="memory-workspace__hint">{{ ledger.recordedAsOf ? tr("该记录时点之前没有已登记的事实。") : tr("还没有正式事实。") }}</p>
           <article v-for="fact in ledger.facts" :key="fact.factVersionId" class="memory-ledger__card">
-            <p><strong>{{ fact.subjectLabel || fact.subjectKey }}</strong> · {{ fact.predicate }} · {{ fact.object }}</p>
+            <p>{{ worldClaimLabel(fact) }}</p>
             <small>{{ tr("故事时间：") }}{{ describeInterval(fact.validInterval) }} {{ tr("· 记录于") }} {{ formatRecordedAt(fact.recordedAt) }} {{ tr("· 版本") }} {{ fact.factVersionId.slice(-8) }}<template v-if="fact.supersedes"> {{ tr("· 更正自") }} {{ fact.supersedes.slice(-8) }}</template><template v-if="fact.supersedesKind"> {{ tr("· 引擎收口") }}</template></small>
             <div v-if="fact.evidenceIds && fact.evidenceIds.length" class="memory-ledger__evidence" data-test="fact-evidence">
               <details v-for="evidenceId in fact.evidenceIds" :key="evidenceId">
-                <summary>{{ tr('来源：{kind} · 来源版本 {revision}', { kind: tr(ledger.evidenceById.get(evidenceId)?.sourceKind === 'manual-assertion' ? '手动断言' : '章节原句'), revision: ledger.evidenceById.get(evidenceId)?.sourceRevision || tr('无') }) }}</summary>
+                <summary>{{ tr('来源：{kind} · 来源版本 {revision}', { kind: evidenceKind(evidenceId), revision: ledger.evidenceById.get(evidenceId)?.sourceRevision || tr('无') }) }}</summary>
                 <blockquote>{{ ledger.evidenceById.get(evidenceId)?.quote || tr("（无冻结引文）") }}</blockquote>
               </details>
             </div>
@@ -795,16 +802,19 @@ onMounted(initialize)
               <button :disabled="busy" @click="beginCorrect(fact)">{{ tr("更正") }}</button>
               <button :disabled="busy" @click="submitRetract(fact)">{{ tr("撤回") }}</button>
             </div>
-            <div v-if="ledger.correctingFactKey === fact.factKey" class="memory-ledger__form">
+            <div v-if="ledger.correctingVersionId === fact.factVersionId" class="memory-ledger__form">
               <p class="memory-workspace__hint">{{ tr("更正前：") }}{{ fact.object }}</p>
-              <label>{{ tr("更正为") }}<textarea v-model="ledger.correctedObject" rows="2" /></label>
+              <WorldTypedValueFields v-if="fact.literalValue" :type="fact.literalValue.type" :initial="fact.literalValue" @change="ledger.correctedLiteral = $event" />
+              <label v-else>{{ tr("更正为") }}<textarea v-model="ledger.correctedObject" rows="2" /></label>
               <label>{{ tr("更正理由（可留空）") }}<input v-model="ledger.correctionReason" maxlength="160"></label>
               <div class="memory-workspace__controls">
-                <button :disabled="busy || !ledger.correctedObject.trim()" @click="submitCorrection(fact)">{{ tr("提交更正") }}</button>
+                <button :disabled="busy || !(fact.literalValue ? ledger.correctedLiteral : ledger.correctedObject.trim())" @click="submitCorrection(fact)">{{ tr("提交更正") }}</button>
                 <button :disabled="busy" @click="cancelCorrect">{{ tr("取消") }}</button>
               </div>
             </div>
           </article>
+          <button v-if="ledger.cursor" :disabled="ledger.loadingMore" @click="loadMoreLedgerRows">{{ ledger.loadingMore ? tr('加载中…') : tr('加载更多事实') }}</button>
+          <p v-else-if="ledger.scanLimited" class="memory-workspace__hint">{{ tr('已达到本次查询的扫描上限，部分事实可能未显示。') }}</p>
         </template>
 
         <template v-else-if="ledger.view === 'decisions' && ledgerScope">
@@ -821,12 +831,13 @@ onMounted(initialize)
               </ol>
             </details>
           </section>
-          <button v-if="ledger.decisionsCursor" :disabled="ledger.decisionsLoadingMore" @click="loadMoreDecisions">
-            {{ ledger.decisionsLoadingMore ? tr("加载中…") : tr("加载更早的决定") }}
+          <button v-if="ledger.cursor" :disabled="ledger.loadingMore" @click="loadMoreLedgerRows">
+            {{ ledger.loadingMore ? tr("加载中…") : tr("加载更早的决定") }}
           </button>
         </template>
 
-        <section class="memory-ledger__migration">
+        <WorldForkWorkspace v-if="ledger.view === 'world' && ledgerScope?.domain === 'book'" :key="ledgerScope.bookId" ref="worldPanel" :scope="ledgerScope" />
+        <section v-else class="memory-ledger__migration">
           <h3>{{ tr("旧记忆迁入") }}</h3>
           <p class="memory-workspace__hint">{{ tr("旧版“已确认”记忆不会自动成为正式事实；迁移需要逐条显式确认，并保留原候选与来源。会话记忆缺少分支归属，暂不能迁入。") }}</p>
           <button :disabled="busy || !ledgerScope" @click="toggleMigration">{{ ledger.migrationOpen ? tr("收起迁入清单") : tr("查看可迁入的旧记忆") }}</button>

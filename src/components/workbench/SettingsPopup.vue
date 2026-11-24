@@ -40,7 +40,7 @@
           <label>{{ tr('界面缩放') }}<select :aria-label="tr('界面缩放')" :value="theme.uiZoom" @change="theme.setUiZoom($event.target.value)"><option v-for="zoom in VALID_UI_ZOOMS" :key="zoom" :value="zoom">{{ Math.round(zoom * 100) }}%</option></select></label>
         </section>
         <section v-if="activeSection === 'memory'" id="settings-panel-memory" class="settings-section" role="tabpanel" :aria-label="tr(&quot;记忆与历史&quot;)">
-          <MemoryHistoryWorkspace />
+          <MemoryHistoryWorkspace :key="worldModelBookId" :world-model-book-id="worldModelBookId" />
         </section>
         <section v-if="activeSection === 'models'" id="settings-panel-models" class="settings-section" role="tabpanel" :aria-label="tr('模型')"><ModelSettings /></section>
         <section
@@ -110,7 +110,7 @@
               {{ workspaceBusy ? tr('正在导出完整工作区...') : tr('导出完整工作区（ZIP）') }}
             </button>
             <button class="settings-btn" type="button" data-test="backup-export-button" @click="handleExportBackup">{{ tr('导出轻量备份（JSON）') }}</button>
-            <button class="settings-btn" type="button" data-test="backup-import-button" @click="pickBackupFile">{{ tr('恢复备份') }}</button>
+            <button class="settings-btn" type="button" data-test="backup-import-button" :disabled="backupBusy || workspaceBusy" @click="pickBackupFile">{{ tr('恢复备份') }}</button>
             <input
               ref="backupInputRef"
               class="backup-import-input"
@@ -137,7 +137,7 @@
               <button class="settings-btn settings-btn--primary" type="button" data-test="backup-restore-confirm" :disabled="backupBusy || !backupPlan.valid || (backupPlan.requiresRiskConfirmation && !backupRiskAccepted)" @click="confirmBackupRestore">
                 {{ backupBusy ? tr('写入中...') : tr('确认导入') }}
               </button>
-              <button class="settings-btn" type="button" @click="cancelBackupRestore">{{ tr('取消') }}</button>
+              <button class="settings-btn" type="button" :disabled="backupBusy" @click="cancelBackupRestore">{{ tr('取消') }}</button>
             </div>
           </div>
           <div v-if="workspaceBundle" class="backup-review" data-test="workspace-backup-review" role="status">
@@ -169,7 +169,7 @@
               >
                 {{ workspaceBusy ? tr('写入中...') : tr('确认导入完整工作区') }}
               </button>
-              <button class="settings-btn" type="button" @click="cancelBackupRestore">{{ tr('取消') }}</button>
+              <button class="settings-btn" type="button" :disabled="workspaceBusy" @click="cancelBackupRestore">{{ tr('取消') }}</button>
             </div>
           </div>
           <p class="storage-boundary-note">{{ tr('完整工作区（ZIP）包含书稿、设定、来源归档、已落盘媒体与记忆历史；轻量备份（JSON）不含已归档的记忆历史。 模型密钥始终不进入任何备份；外部链接引用、尚未落盘的媒体与浏览器缓存不保证包含。 恢复会覆盖所选备份中的对应数据，确认前会先显示预览。备份文件请妥善保存。') }}</p>
@@ -201,7 +201,7 @@ import { backupMessage } from '../../i18n/backupMessages.js'
 import { uiLocale, assistantLanguage, setLanguagePreferences } from '../../i18n/index.js'
 const languageSaveError = ref(false)
 function changeLanguage(locale, assistant = assistantLanguage.value) { languageSaveError.value = !setLanguagePreferences(locale, assistant) }
-import { onMounted, computed, ref, nextTick, defineAsyncComponent } from 'vue'
+import { onMounted, computed, ref, nextTick, defineAsyncComponent, watch } from 'vue'
 const MemoryHistoryWorkspace = defineAsyncComponent(() => import('../authoring/MemoryHistoryWorkspace.vue'))
 import ModelSettings from '../settings/ModelSettings.vue'
 import LocalProjectPanel from './LocalProjectPanel.vue'
@@ -209,6 +209,7 @@ import WritingPreferences from './WritingPreferences.vue'
 import WorkbenchIcon from './WorkbenchIcon.vue'
 import { useThemeStore, VALID_UI_ZOOMS } from '../../stores/themeStore'
 import { createRestorePlan, exportAllBackup, restoreBackup } from '../../utils/backupExport'
+import { withWritingBooksLock } from '../../services/storage/writingBooksLock.js'
 import {
   exportWorkspaceBackupBundle,
   inspectWorkspaceBackup,
@@ -221,8 +222,11 @@ import { useExperienceReadingPreferences } from '../../composables/useExperience
 import { exportBetaDiagnosticReport } from '../../utils/betaDiagnosticExport.js'
 import { useRouter } from 'vue-router'
 
-const { close, activeSection, isOpen } = useSettingsPopup()
+const { close, activeSection, isOpen, worldModelBookId } = useSettingsPopup()
 const router = useRouter()
+watch(() => router.currentRoute.value.query.bookId, () => {
+  if (worldModelBookId.value) close()
+})
 const theme = useThemeStore()
 const expansion = useExperienceNarrativeExpansion()
 const { profileName: readingProfile, setProfile: setReadingProfile, profiles: readingProfileObjects } = useExperienceReadingPreferences()
@@ -347,7 +351,8 @@ function pickBackupFile() {
 async function handleBackupFile(event) {
   const file = event.target?.files?.[0]
   event.target.value = ''
-  if (!file) return
+  if (!file || backupBusy.value || workspaceBusy.value) return
+  cancelBackupRestore()
 
   backupFeedback.value = ''
   restoredTarget.value = null
@@ -357,9 +362,10 @@ async function handleBackupFile(event) {
     void handleWorkspaceBackupFile(file)
     return
   }
+  backupBusy.value = true
   try {
     backupText.value = await file.text()
-    backupPlan.value = createRestorePlan(backupText.value)
+    backupPlan.value = createRestorePlan(backupText.value, localStorage, { review: true })
     backupRiskAccepted.value = false
     if (!backupPlan.value.valid) {
       backupFeedback.value = tr('{value0}。请确认这是本应用“导出轻量备份（JSON）”生成的文件，或使用完整工作区 ZIP 恢复，再重新选择。', { value0: backupPlan.value.incompatible.map(backupMessage).join('; ') || '备份不可导入' })
@@ -368,7 +374,7 @@ async function handleBackupFile(event) {
   } catch (error) {
     backupPlan.value = null
     backupFeedback.value = tr('{value0}。请重新选择备份文件；文件应是 .json 或 .zip 格式。', { value0: error?.message || '备份读取失败' })
-  }
+  } finally { backupBusy.value = false }
 }
 
 // 完整工作区（ZIP）：先完整校验并生成预览，确认后才写入
@@ -400,6 +406,7 @@ async function confirmWorkspaceRestore() {
   try {
     const result = await restoreWorkspaceBackupBundle(bundle.file, {
       storage: localStorage,
+      expectedReviewRevision: bundle.inspection.reviewRevision,
       acceptRestoreRisk: backupRiskAccepted.value
     })
     if (result.success) {
@@ -411,8 +418,12 @@ async function confirmWorkspaceRestore() {
       cancelBackupRestore()
       // 只在持久化全部确认后刷新应用
       setTimeout(() => window.location.reload(), 1200)
-    } else if (result.reason === 'restore-risk-not-accepted') {
-      backupFeedback.value = tr('这份备份会替换较新的数据，需要先勾选确认后才能导入。')
+    } else if (result.reason === 'restore-risk-not-accepted' || result.reason === 'restore-review-changed') {
+      workspaceBundle.value = { file: bundle.file, inspection: result.inspection }
+      backupRiskAccepted.value = false
+      backupFeedback.value = result.reason === 'restore-review-changed'
+        ? tr('预览后本机数据有改动。请核对更新后的预览，再确认导入。')
+        : tr('这份备份会替换较新的数据，需要先勾选确认后才能导入。')
     } else {
       const domainLines = result.domains
         ? Object.entries(result.domains)
@@ -445,19 +456,30 @@ function resolveRestoredTarget() {
   return null
 }
 
-function confirmBackupRestore() {
+async function confirmBackupRestore() {
   if (!backupPlan.value || backupBusy.value) return
   if (backupPlan.value.requiresRiskConfirmation && !backupRiskAccepted.value) return
   backupBusy.value = true
+  const plan = backupPlan.value
+  const text = backupText.value
+  const acceptRestoreRisk = backupRiskAccepted.value
   try {
-    const result = restoreBackup(backupText.value, {
-      acceptRestoreRisk: backupRiskAccepted.value,
+    const result = await withWritingBooksLock(() => {
+      if (backupPlan.value !== plan || backupText.value !== text) return null
+      return restoreBackup(text, { acceptRestoreRisk, expectedReviewRevision: plan.reviewRevision })
     })
+    if (!result) return
     if (result.success) {
       restoredTarget.value = resolveRestoredTarget()
       restoreSucceeded.value = true
       backupFeedback.value = tr('备份已恢复，数据已写回当前浏览器。')
       cancelBackupRestore()
+    } else if (result.reason === 'restore-review-changed') {
+      backupPlan.value = result.plan
+      backupRiskAccepted.value = false
+      backupFeedback.value = tr('预览后本机数据有改动。请核对更新后的预览，再确认导入。')
+    } else if (result.rollbackFailed) {
+      backupFeedback.value = tr('本次恢复只撤销了部分写入。请保留当前页面并导出备份，再核对书稿。')
     } else if (result.reason === 'quota') {
       backupFeedback.value = tr('浏览器拒绝写入，已撤销本次导入。请保留备份文件，可在另一浏览器或设备中尝试恢复；请勿清除当前网站数据。')
     } else if (result.reason === 'restore-risk-not-accepted') {
@@ -465,6 +487,8 @@ function confirmBackupRestore() {
     } else {
       backupFeedback.value = tr('{value0}。原有数据未变，可重新选择备份文件再试。', { value0: result.error || '备份写入失败，未完成导入' })
     }
+  } catch (error) {
+    backupFeedback.value = tr('{value0}。原有数据已尽量保留。', { value0: error?.message || '备份写入失败，未完成导入' })
   } finally {
     backupBusy.value = false
   }

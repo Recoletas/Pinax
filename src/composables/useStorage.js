@@ -1,3 +1,6 @@
+import { readStoredJson, readStoredText, writeStoredText } from '../services/storage/writingStorageCodec.js'
+import { removeStoredValue } from '../services/storage/writingChapterStorage.js'
+
 /**
  * localStorage 键名与 schema 定义（统一入口）
  * 版本号标注以便后续迁移
@@ -32,6 +35,7 @@ export const STORAGE_KEYS = {
   WRITING_DOCK_PREFERENCES: 'writing_dock_preferences_v1',
   WORKSPACE_EXTENSION_PREFERENCES: 'pinax_workspace_extension_preferences_v1',
   LOCAL_MIRROR_SETTINGS: 'local_mirror_settings_v1',
+  LOCAL_MIRROR_RECEIPTS: 'local_mirror_receipts_v1',
   AUTHORING_REVIEW_RUNS: 'authoring_review_runs_v1',
   NARRATIVE_ASSETS: 'narrative_assets_v1',
   MEMORY_CANDIDATES: 'memory_candidates_v1',
@@ -133,10 +137,9 @@ export const SCHEMA = {
  */
 export function getItem(key) {
   try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : null
-  } catch {
-
+    return readStoredJson(localStorage, key)
+  } catch (error) {
+    if (error?.code === 'WRITING_STORAGE_CORRUPT') throw error
     return null
   }
 }
@@ -146,7 +149,7 @@ export function getItem(key) {
  */
 export function setItem(key, value) {
   try {
-    localStorage.setItem(key, JSON.stringify(value))
+    writeStoredText(localStorage, key, JSON.stringify(value))
     return true
   } catch {
 
@@ -159,9 +162,9 @@ export function setItem(key, value) {
  */
 export function getTextItem(key) {
   try {
-    return localStorage.getItem(key) || ''
-  } catch {
-
+    return readStoredText(localStorage, key) || ''
+  } catch (error) {
+    if (error?.code === 'WRITING_STORAGE_CORRUPT') throw error
     return ''
   }
 }
@@ -171,7 +174,7 @@ export function getTextItem(key) {
  */
 export function setTextItem(key, value) {
   try {
-    localStorage.setItem(key, String(value ?? ''))
+    writeStoredText(localStorage, key, String(value ?? ''))
     return true
   } catch {
 
@@ -183,5 +186,5 @@ export function setTextItem(key, value) {
  * 移除存储数据
  */
 export function removeItem(key) {
-  localStorage.removeItem(key)
+  removeStoredValue(localStorage, key)
 }

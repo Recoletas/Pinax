@@ -108,7 +108,7 @@ try {
       // history inspector 入口；经批注工具的版本视图到达同一
       // data-authoring-inspector="history" DOM，断言不变。
       await page.locator('[data-authoring-tool="annotations"]').click()
-      await page.locator('.writing-inspector__tabs button', { hasText: '版本' }).click()
+      await page.locator('.writing-inspector__tabs').getByRole('button', { name: '正文历史', exact: true }).click()
       await page.locator('[data-authoring-inspector="history"]').waitFor()
       await page.locator('[data-authoring-tool="characters"]').click()
       await page.locator('.authoring-character-workbench').waitFor()

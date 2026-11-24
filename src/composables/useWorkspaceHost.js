@@ -10,6 +10,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   if (renderers) workspaceExtensions.bindRenderers(renderers)
   const assistantNavigationNotice = '请先完成或停止助手任务，再切换作品；正文采用期间请稍候。'
   const state = reactive({ directoryOpen: false, views: [], activeId: '', mainModuleId: '', sideActiveId: '', expanded: false, hidden: false, width: 420, notice: '', primaryVisible: true, narrow: false, primaryComposing: false, composingViewId: '' })
+  const pendingRailSelection = shallowRef(null)
   const tabsTarget = shallowRef(null)
   const viewTitles = reactive({})
   const viewIcons = reactive({})
@@ -29,7 +30,9 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   }))
   const scope = computed(() => explicitScope.value?.routeName === route.name ? unref(explicitScope.value.value)
     : { bookId: typeof route.query.bookId === 'string' ? route.query.bookId : '', worldbookId: typeof route.query.worldbookId === 'string' ? route.query.worldbookId : '' })
-  const directory = useWorkspaceDirectory({ state, scope })
+  const libraryVisible = computed(() => route.name === 'welcome' || (!state.hidden &&
+    state.views.some(view => view.id === state.mainModuleId && view.resource.type === 'home')))
+  const directory = useWorkspaceDirectory({ state, scope, libraryVisible })
   // Route-owned navigation uses the same shell without changing project preferences.
   const directorySurface = shallowRef(null)
   const activeDirectorySurface = computed(() => directorySurface.value?.routeName === route.name ? directorySurface.value : null)
@@ -217,8 +220,15 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
     if (['chapter', 'exploration'].includes(view.resource.type)) {
       const ticket = revision
       try {
+        const target = view.resource
         const navigate = route.name === 'authoring' && chapterNavigator ? chapterNavigator : openChapter
-        if (!navigate || await navigate(view.resource) === false) { state.notice = '未能切换章节，请先处理保存问题或未确认的草稿。'; return false }
+        if (!navigate || await navigate(target) === false) { state.notice = '未能切换章节，请先处理保存问题或未确认的草稿。'; return false }
+        // From a standalone map the editor registers its navigator during the route change.
+        if (navigate === openChapter && target.nodeId && target.matchText) {
+          if (disposed || !accepts(target) || !state.views.includes(view) || route.name !== 'authoring'
+            || String(route.query.chapterId) !== target.id || (ticket !== revision && state.mainModuleId !== id)) return false
+          if (!chapterNavigator || await chapterNavigator(target) === false) return false
+        }
       } catch { state.notice = '未能打开章节，当前内容仍保留。'; return false }
       // Route changes may report the accepted primary chapter. Check identity,
       // never apply a late navigation result after switching projects/closing.
@@ -287,6 +297,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   // Reset placement, not resources or pending edits. Imports remain mounted.
   function resetLayout() { state.width = 420; state.mainModuleId = ''; state.expanded = false; state.hidden = false; for (const view of state.views) view.group = 'side'; state.sideActiveId = state.activeId; persist() }
   watch(scopeKey, () => {
+    pendingRailSelection.value = null
     revision += 1; primaryChapter.value = null; primaryReturnResource.value = null; for (const view of state.views) guards.delete(view.id); returnFocus = null
     state.primaryComposing = false; state.composingViewId = ''; state.directoryOpen = false
     let saved = null
@@ -312,7 +323,7 @@ export function provideComposableWorkspace(route, { openAssistant, openChapter, 
   })
   onScopeDispose(() => { disposed = true; revision += 1; assistantSessions.dispose(); guards.clear(); taskAdapters.clear() })
   const onlineMountAllowed = computed(() => route.name !== 'experience' && (route.name !== 'online-experience' || hostedRoute.value?.resource.type === 'online-editor'))
-  const host = { activeDirectorySurface, navigationDirectory, bindDirectorySurface, extensions: workspaceExtensions, directory, bindSettingNameInserter, insertSettingName, openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
+  const host = { pendingRailSelection, activeDirectorySurface, navigationDirectory, bindDirectorySurface, extensions: workspaceExtensions, directory, bindSettingNameInserter, insertSettingName, openHome, tabsTarget, viewTitles, viewIcons, directoryTarget, directoryDocked, prepareOpen, primaryReturnResource, primaryTitle, primaryChapter, railTarget, railDocked, onlineMountAllowed, state, scope, activeView, moduleNavigation, hostedRoute, taskSummaries, bindChapterNavigator, reorderView, selectMain, showPrimary, trackPrimaryChapter, attachAssistant: assistantSessions.attach, assistantSummary: assistantSessions.summary, focusView, openAt, openResource, updateResource, activate, bindScope, registerGuard, registerTaskAdapter, prepareLeave, close, move, hide, pin, resize, resetLayout }
   provide(COMPOSABLE_WORKSPACE_CONTEXT, host)
   return host
 }

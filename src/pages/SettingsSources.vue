@@ -21,6 +21,7 @@ import LocalizationCenter from '../components/settings/LocalizationCenter.vue'
 import WorkbenchIcon from '../components/workbench/WorkbenchIcon.vue'
 import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository.js'
 import { STORAGE_KEYS } from '../composables/useStorage.js'
+import { isWritingChangesKey } from '../services/storage/writingChapterStorage.js'
 import { useComposableWorkspace } from '../composables/useComposableWorkspace.js'
 
 const route = useRoute()
@@ -60,7 +61,7 @@ function refreshBooks(payload) {
 }
 refreshBooks()
 function onStorage(event) {
-  if (event.key === STORAGE_KEYS.WRITING_BOOKS || event.key === null) refreshBooks()
+  if (event.key === STORAGE_KEYS.WRITING_BOOKS || isWritingChangesKey(event.key) || event.key === null) refreshBooks()
 }
 const unsubscribeBooks = subscribeWritingBooks(refreshBooks)
 function updateViewport(event) {

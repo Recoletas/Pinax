@@ -1,0 +1,9 @@
+{
+  "package": "@pinax/core",
+  "version": "0.43.0",
+  "repository": "git@github.com:Recoletas/pinax-core.git",
+  "commit": "14762b678eb5fa0dea4fac6bd8f69026852d7498",
+  "filename": "pinax-core-0.43.0.tgz",
+  "sha256": "752e750109e85a03eeee696f577a30b49c7b4dcc7184cf65256a05c119b7d3f8",
+  "integrity": "sha512-s/+J5ivJpSpRKZHWbi3vbW0a/8T9npegrex9M72Mn8O+goSTcw3/mkZhgKgt76RjhAjCP1ef3Vh+lSBagA5bIA=="
+}

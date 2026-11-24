@@ -2,6 +2,8 @@
 // 锚点保存在 chapter.sceneAnchors，绑定 unitId + worldbookId；
 // 纯函数模块：归一化、活动锚点解析、upsert 与单元拆分/合并/删除迁移。
 
+import { normalizeStoryClock } from '@pinax/core/memory/ledger/storyClock'
+
 export const SCENE_ANCHOR_SCHEMA_VERSION = 1
 export const MAX_AUTHORING_PRESENT_CHARACTERS = 8
 
@@ -17,6 +19,21 @@ function deterministicId(seed) {
     hash = Math.imul(hash, 16777619)
   }
   return `anchor-${(hash >>> 0).toString(16).padStart(8, '0')}`
+}
+
+// A book's ledger uses signed, discrete ordinals on its default timeline.
+// Free-text calendar labels have no automatic numeric interpretation.
+export function sceneStoryAt(value) {
+  if (Number.isSafeInteger(value)) return value
+  if (typeof value !== 'string' || !/^[+-]?\d+$/.test(value.trim())) return null
+  const point = Number(value)
+  return Number.isSafeInteger(point) ? point : null
+}
+
+export function sceneTimeLabel(time, ordinalLabel) {
+  const label = stableString(time?.label || time?.period)
+  const point = sceneStoryAt(time?.storyAt)
+  return [label, time?.storyClock ? (time.clockLabel || [time.storyClock.timelineId, time.storyClock.eraId].join(' · ')) : '', point == null ? '' : ordinalLabel + ' ' + point].filter(Boolean).join(' · ')
 }
 
 export function normalizeSceneAnchor(input = {}) {
@@ -38,6 +55,8 @@ export function normalizeSceneAnchor(input = {}) {
     .filter(Boolean)
     .filter((id) => (plannedSeen.has(id) ? false : (plannedSeen.add(id), true)))
     .filter((id) => (presentCharacterIds.includes(id) ? false : true))
+  const clock = normalizeStoryClock(source.time?.storyClock)
+  const storyAt = clock && sceneStoryAt(source.time?.storyAt)
   return Object.freeze({
     schemaVersion: SCENE_ANCHOR_SCHEMA_VERSION,
     id: stableString(source.id) || deterministicId(`${unitId}\u0000${stableString(source.worldbookId)}`),
@@ -50,7 +69,9 @@ export function normalizeSceneAnchor(input = {}) {
     viewpointCharacterId: stableString(source.viewpointCharacterId),
     time: {
       label: stableString(source.time?.label),
-      period: stableString(source.time?.period)
+      period: stableString(source.time?.period),
+      ...(storyAt === null ? {} : { storyAt }),
+      ...(clock && clock.timelineId !== 'default' ? { storyClock: clock, clockLabel: stableString(source.time?.clockLabel) } : {})
     },
     status: stableString(source.status),
     staleReason: stableString(source.staleReason),
@@ -90,7 +111,8 @@ export function resolveActiveSceneAnchor({ anchors, unitOrder, activeUnitId, wor
 
   // 显式锚点优先。
   const explicit = byUnit.get(stableString(activeUnitId))
-  if (explicit && !explicit.status) {
+  if (explicit?.status) return { anchor: null, status: 'no-anchor', conflictingAnchor: null }
+  if (explicit) {
     if (explicit.worldbookId !== expectedWorldbookId) {
       return { anchor: null, status: 'worldbook-mismatch', conflictingAnchor: explicit }
     }
@@ -107,7 +129,6 @@ export function resolveActiveSceneAnchor({ anchors, unitOrder, activeUnitId, wor
     return { anchor: candidate, status: 'inherited', conflictingAnchor: null }
   }
 
-  // activeUnit 自己有锚点但已 stale → no-anchor（不静默沿用）。
   return { anchor: null, status: 'no-anchor', conflictingAnchor: null }
 }
 
@@ -117,6 +138,11 @@ export function upsertSceneAnchor({ anchors, anchor, expectedDocumentRevision, l
     String(expectedDocumentRevision ?? '') !== String(liveDocumentRevision ?? '')
   ) {
     return { ok: false, reason: 'stale', anchors: normalizeSceneAnchors(anchors) }
+  }
+  if (!normalizeStoryClock(anchor?.time?.storyClock)) return { ok: false, reason: 'invalid-story-clock', anchors: normalizeSceneAnchors(anchors) }
+  const point = anchor?.time?.storyAt
+  if (point != null && point !== '' && sceneStoryAt(point) === null) {
+    return { ok: false, reason: 'invalid-story-time', anchors: normalizeSceneAnchors(anchors) }
   }
   const next = normalizeSceneAnchor(anchor)
   if (next.status === 'invalid') {

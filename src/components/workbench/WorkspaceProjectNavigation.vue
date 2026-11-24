@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { isNavigationFailure, useRouter } from 'vue-router'
 import { tr, uiLocale } from '../../i18n/index.js'
 import { STORAGE_KEYS } from '../../composables/useStorage.js'
+import { isWritingChangesKey } from '../../services/storage/writingChapterStorage.js'
 import { loadWritingBooks, subscribeWritingBooks } from '../../services/writing/writingBooksRepository.js'
 import { useWorkspaceTabsStore } from '../../stores/workspaceTabsStore.js'
 import WorkbenchIcon from './WorkbenchIcon.vue'
@@ -85,7 +86,7 @@ function refreshBooks(payload) {
 }
 refreshBooks()
 function onStorage(event) {
-  if (event.key === STORAGE_KEYS.WRITING_BOOKS || event.key === null) refreshBooks()
+  if (event.key === STORAGE_KEYS.WRITING_BOOKS || isWritingChangesKey(event.key) || event.key === null) refreshBooks()
 }
 const unsubscribeBooks = subscribeWritingBooks(refreshBooks)
 onMounted(() => {

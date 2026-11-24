@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { createWorldbookStateModule } from '@pinax/core/worldbook/worldbookState'
-import { recoverAssistantEdits } from '../services/storage/assistantEditJournal.js'
-import { getItem, setItem, removeItem, STORAGE_KEYS } from '../composables/useStorage'
+import { readCommittedItem as getItem, writeCommittedItem as setItem, removeCommittedItem as removeItem, recoverAssistantEdits } from '../services/storage/assistantEditJournal.js'
+import { STORAGE_KEYS } from '../composables/useStorage'
 import { resolvePlaceEntity } from '../services/worldHistory/placeEntity'
 import {
   getPlaceDeleteImpact as getCatalogPlaceDeleteImpact,

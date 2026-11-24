@@ -11,10 +11,12 @@ import { ref } from 'vue'
 const isOpen = ref(false)
 const activeSection = ref('models')
 const modelKind = ref('text')
+const worldModelBookId = ref('')
 
 const VALID_SECTIONS = new Set(['writing', 'appearance', 'models', 'ai', 'media', 'storage', 'experience', 'memory', 'localproject'])
 
 function open(section = 'models', kind = null) {
+  worldModelBookId.value = ''
   if (['text', 'image', 'video'].includes(kind)) modelKind.value = kind
   else if (section === 'ai') modelKind.value = 'text'
   else if (section === 'media') modelKind.value = 'image'
@@ -22,8 +24,15 @@ function open(section = 'models', kind = null) {
   isOpen.value = true
 }
 
+function openWorldModel(bookId) {
+  if (!bookId) return
+  open('memory')
+  worldModelBookId.value = String(bookId)
+}
+
 function close() {
   isOpen.value = false
+  worldModelBookId.value = ''
 }
 
 function toggle(section) {
@@ -35,5 +44,5 @@ function toggle(section) {
 }
 
 export function useSettingsPopup() {
-  return { isOpen, activeSection, modelKind, open, close, toggle }
+  return { isOpen, activeSection, modelKind, worldModelBookId, open, openWorldModel, close, toggle }
 }

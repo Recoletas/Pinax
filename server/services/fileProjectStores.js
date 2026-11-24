@@ -75,7 +75,7 @@ export function createFileProjectStores({ root, service = createLocalMirrorServi
       const payload = { book: working.book, domains: [type === 'entry' ? 'worldbook' : 'book'], baseRevision: snapshot.token.revision,
         expectedBookFingerprint: snapshot.token.book, expectedWorldbookFingerprint: snapshot.token.worldbook }
       if (type === 'entry') payload.worldbook = working.worldbook
-      service.mirrorBook(payload, { receipt: receipt ? { ...receipt, result } : null })
+      service.mirrorBook(payload, { scope: type === 'chapter' ? 'chapters' : type === 'entry' ? null : 'outline', receipt: receipt ? { ...receipt, result } : null })
       try { snapshot = load(); expectedSnapshot = snapshot.token }
       catch { snapshot = { ...working, token: null }; expectedSnapshot = null }
       return result

@@ -4,7 +4,7 @@
 // 持久化只保存安全导航状态（route + restoreState），不保存正文、ghost 或页面缓存。
 import { defineStore } from 'pinia'
 import { getItem, setItem, STORAGE_KEYS } from '../composables/useStorage'
-import { loadWritingBooks, subscribeWritingBooks } from '../services/writing/writingBooksRepository'
+import { loadWritingBooksSnapshot, subscribeWritingBooks } from '../services/writing/writingBooksRepository'
 import {
   WORKSPACE_TAB_SCHEMA_VERSION,
   chooseCloseNeighbor,
@@ -83,7 +83,7 @@ export const useWorkspaceTabsStore = defineStore('workspaceTabs', {
 
     refreshBookIndex() {
       const index = {}
-      for (const book of loadWritingBooks()) {
+      for (const book of loadWritingBooksSnapshot()) {
         index[String(book.id)] = {
           id: String(book.id),
           title: book.title,

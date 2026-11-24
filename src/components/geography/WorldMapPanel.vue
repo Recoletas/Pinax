@@ -475,13 +475,19 @@
           @update-marker="handleUpdateMarker"
           @delete-marker="handleDeleteMarker"
           @marker-drag-end="handleMarkerDragEnd"
-        />
+        >
+          <template #marker-detail="{ marker }">
+            <MapPlaceManuscript v-if="props.projectId && marker.bindingStatus === 'confirmed' && marker.worldbookEntryId && (!marker.worldbookId || marker.worldbookId === activeWorldbook?.id)"
+              :book-id="props.projectId" :worldbook="activeWorldbook" :entry-id="marker.worldbookEntryId" :disabled="sourceBusy" />
+          </template>
+        </WorldMapVoronoi>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import MapPlaceManuscript from './MapPlaceManuscript.vue'
 import { ref, shallowRef, computed, watch, onMounted, onUnmounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useGeographyStore } from '../../stores/geographyStore'
@@ -625,12 +631,12 @@ watch(
   [() => props.focusEntryId, markers],
   ([entryId, currentMarkers]) => {
     const wanted = String(entryId || '')
-    if (!wanted) return
+    if (!wanted) { focusMarkerId.value = ''; return }
     const marker = (Array.isArray(currentMarkers) ? currentMarkers : []).find((item) => (
       String(item?.worldbookEntryId || '') === wanted
       && item?.bindingStatus === 'confirmed'
     ))
-    if (marker?.id) focusMarkerId.value = String(marker.id)
+    focusMarkerId.value = String(marker?.id || '')
   },
   { deep: true, immediate: true }
 )

@@ -12,7 +12,7 @@ import { chromium } from 'playwright'
 const BASE_URL = process.env.PINAX_TEMPORAL_ADOPT_EVAL_URL || 'http://127.0.0.1:5179'
 const browser = await chromium.launch({ headless: true })
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1440, height: 1000 } })
   const pageErrors = []
   page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto(BASE_URL)
@@ -52,7 +52,7 @@ try {
     check(pb.ok, `proposal B failed: ${pb.reason || ''}`)
     const planB = pb.proposal.temporalPlanV1
     check(planB && planB.closes.length === 1 && planB.closes[0].id === v1Id, `B 应计划收口 v1：${JSON.stringify(planB)}`)
-    check(planB.closes[0].proposedEnd.kind === 'at' && planB.closes[0].proposedEnd.at === 1e9 + 7, '收口点应是 B 起点（era 序*1e9+ordinal）')
+    check(planB.closes[0].proposedEnd.kind === 'at' && planB.closes[0].proposedEnd.at?.eraId === 'era-a' && planB.closes[0].proposedEnd.at.ordinal === 7, '收口点应保留 B 起点的纪元与序号')
     check(planB.closes[0].proposedEnd.derivedFrom !== undefined, '收口应带依据行')
     check(planB.closes[0].snapshotHash, '收口应带计划时区间指纹')
 

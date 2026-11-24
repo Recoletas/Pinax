@@ -17,6 +17,12 @@ function normalizeText(value) {
     .replace(/\r\n?/g, '\n')
 }
 
+function formatImportedBody(text, filename) {
+  if (!/\.txt$/iu.test(filename)) return text
+  // A TXT line is an author paragraph. Markdown requires a blank separator.
+  return text.replace(/^\u3000+(?=\S)/gmu, '').replace(/(\S[^\S\n]*)\n(?=[^\S\n]*\S)/gu, '$1\n\n')
+}
+
 function filenameStem(filename = '') {
   return String(filename || '')
     .replace(/^.*[\\/]/u, '')
@@ -110,13 +116,13 @@ export function parseManuscriptText({ text, filename = '', manuscriptLanguage = 
     text: normalized,
     charCount: normalized.length,
     detected: markers.length > 0,
-    chapters
+    chapters: chapters.map(chapter => ({ ...chapter, content: formatImportedBody(chapter.content, filename) }))
   }
 }
 
 export function buildSingleChapterPreview(parsed, manuscriptLanguage = '') {
   if (!parsed?.ok) return []
-  return [{ title: defaultWritingTitle('body', manuscriptLanguage), content: String(parsed.text || '').trim() }]
+  return [{ title: defaultWritingTitle('body', manuscriptLanguage), content: formatImportedBody(String(parsed.text || '').trim(), parsed.filename) }]
 }
 
 export function createImportedWritingBook({ title, chapters, manuscriptLanguage = '', now = () => new Date(), idFactory = null } = {}) {

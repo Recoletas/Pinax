@@ -32,22 +32,12 @@ export function createBrowserChapterStore({
   loadBooks = loadWritingBooks,
   saveBooks = saveWritingBooksDurable
 } = {}) {
-  function persistMutation(book, mutate, value) {
-    const snapshot = JSON.parse(JSON.stringify(book))
-    const references = new Map((book.chapters || []).map(chapter => [String(chapter.id), chapter]))
-    const chapterList = book.chapters
+  function persistMutation(book, mutate, undo, value) {
+    const updatedAt = book.updatedAt
     const restore = () => {
-      for (const key of Object.keys(book)) delete book[key]
-      Object.assign(book, snapshot)
-      if (Array.isArray(chapterList)) {
-        const restored = (snapshot.chapters || []).map(saved => {
-          const target = references.get(String(saved.id)) || {}
-          for (const key of Object.keys(target)) delete target[key]
-          return Object.assign(target, saved)
-        })
-        chapterList.splice(0, chapterList.length, ...restored)
-        book.chapters = chapterList
-      }
+      undo()
+      if (updatedAt === undefined) delete book.updatedAt
+      else book.updatedAt = updatedAt
     }
     try {
       mutate()
@@ -81,11 +71,15 @@ export function createBrowserChapterStore({
       if (findChapter(book, record.id)) {
         return fail(CORE_ERROR_CODES.DUPLICATE_CHAPTER, '章节已存在', { bookId, chapterId: record.id })
       }
+      const previousList = book.chapters
       return persistMutation(book, () => {
         if (!Array.isArray(book.chapters)) book.chapters = []
         const stored = { ...record }; delete stored.bookId
         book.chapters.push(stored)
         book.updatedAt = record.updatedAt
+      }, () => {
+        if (Array.isArray(previousList)) previousList.pop()
+        else book.chapters = previousList
       }, { books, record: () => record })
     },
 
@@ -104,7 +98,7 @@ export function createBrowserChapterStore({
       return persistMutation(book, () => {
         chapters.splice(index, 1)
         book.updatedAt = new Date().toISOString()
-      }, { books, record: () => normalizeChapterRecord(chapter, { bookId }) })
+      }, () => chapters.splice(index, 0, chapter), { books, record: () => normalizeChapterRecord(chapter, { bookId }) })
     },
 
     update(bookId, chapterId, patch, { expectedRevision } = {}) {
@@ -117,10 +111,14 @@ export function createBrowserChapterStore({
       const result = applyChapterPatch(chapter, patch, { expectedRevision, now: new Date().toISOString() })
       if (!result.ok) return result
       const next = result.value
+      const before = { ...chapter }
       return persistMutation(book, () => {
         for (const key of CHAPTER_SIDECAR_KEYS) if (!(key in next)) delete chapter[key]
         Object.assign(chapter, next)
         book.updatedAt = chapter.updatedAt
+      }, () => {
+        for (const key of Object.keys(chapter)) if (!(key in before)) delete chapter[key]
+        Object.assign(chapter, before)
       }, { books, record: () => normalizeChapterRecord(chapter, { bookId }) })
     }
   }

@@ -83,7 +83,7 @@ function focusOwner(event) {
 function updateViewport(event) { narrow.value = event.matches }
 function returnToInspector(event) {
   const button = event.target?.closest?.('[data-authoring-tool]')
-  if (!visible.value || !button || !button.closest('.workspace-primary-group, .workspace-writing-tools')) return
+  if (!visible.value || !button || button.closest('.writing-tool-rail') || !button.closest('.workspace-primary-group, .workspace-writing-tools')) return
   const alreadyOpen = button.dataset.selected === 'true' && (root.value?.querySelector('.workspace-primary-group .writing-inspector.is-open') || button.dataset.authoringTool === 'dual')
   if (!host.hide() || alreadyOpen) {
     event.preventDefault()
@@ -186,6 +186,7 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
 
 <style scoped>
 .workspace-tabs-host { flex: none; min-width: 0; }
+:global(html[data-pinax-desktop='windows'] .workspace-content-groups.has-reference .ws-tabs) { padding-inline-end: 8px; }
 /* The activity bar and sidebar are siblings of the editor, never its owners. */
 .workspace-activity-bar { display: flex; flex: 0 0 44px; flex-direction: column; align-items: stretch; padding-top: 4px; background: var(--workbench-chrome); border-inline-end: 1px solid transparent; }
 .workspace-activity-bar button { position: relative; display: grid; place-items: center; width: 44px; height: 46px; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text-muted); cursor: pointer; }
@@ -202,7 +203,7 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
 .workspace-directory-owner { height: 100%; min-height: 0; }
 .workspace-directory-heading select { min-width: 0; max-width: 180px; padding: 4px 0; border: 0; background: transparent; color: var(--text-primary); font: inherit; }
 .workspace-directory-dock.writing-page :deep(.wall__shelf) { box-sizing: border-box; width: 100%; height: 100%; align-self: stretch; padding: 0; border: 0; background: transparent; }
-.workspace-directory-content :deep(.wall__shelf-manuscript) { gap: 0; scrollbar-width: thin; }
+.workspace-directory-content :deep(.wall__shelf-manuscript) { gap: 0; scrollbar-width: auto; }
 .workspace-directory-resize { position: absolute; inset-block: 0; inset-inline-end: -2px; width: 5px; z-index: 4; cursor: col-resize; touch-action: none; }
 .workspace-directory-resize:hover, .workspace-directory-resize:focus-visible { background: var(--accent); outline: none; }
 .workspace-directory-overlay { position: absolute; inset: 44px 0 0; z-index: 109; border: 0; background: color-mix(in srgb, var(--archive-ink) 18%, transparent); }
@@ -281,4 +282,40 @@ onBeforeUnmount(() => { host.tabsTarget.value = null; host.railTarget.value = nu
   .has-project-directory :deep(.writing-page .writing-inspector), .has-project-directory :deep(.authoring-dual-pane) { width: min(440px, calc(100% - var(--writing-tool-rail-width, 52px))); }
 }
 .workspace-content-groups:has(.writing-page.is-zen) :is(.workspace-directory-dock, .workspace-activity-bar) { display: none; }
+
+.workspace-reference-body { container-type: inline-size; }
+.workspace-reference-header { box-sizing: border-box; min-height: 48px; padding-inline: 8px 4px; background: var(--surface-workbench); }
+.workspace-reference-header :deep(.workspace-content-tab-slot) { position: relative; border-inline-end: 0; }
+.workspace-reference-header :deep(.workspace-content-tab.is-active) { background: transparent; }
+.workspace-reference-header :deep(.workspace-content-tab-slot:has(.is-active)::after) {
+  content: ''; position: absolute; inset: auto 8px 0; height: 2px; background: color-mix(in srgb, var(--text-secondary) 70%, transparent); pointer-events: none;
+}
+.workspace-directory-content, .workspace-directory-content :deep(*), .workspace-reference-body {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+.workspace-directory-content::-webkit-scrollbar, .workspace-directory-content :deep(::-webkit-scrollbar), .workspace-reference-body::-webkit-scrollbar {
+  width: 10px; height: 10px;
+}
+.workspace-directory-content::-webkit-scrollbar-thumb, .workspace-directory-content :deep(::-webkit-scrollbar-thumb), .workspace-reference-body::-webkit-scrollbar-thumb {
+  border: 3px solid transparent; border-radius: 10px; background: color-mix(in srgb, var(--text-secondary) 34%, transparent); background-clip: padding-box;
+}
+.workspace-directory-content:hover::-webkit-scrollbar-thumb, .workspace-directory-content:hover :deep(::-webkit-scrollbar-thumb), .workspace-reference-body:hover::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--text-secondary) 64%, transparent);
+}
+.workspace-directory-content::-webkit-scrollbar-button, .workspace-directory-content :deep(::-webkit-scrollbar-button), .workspace-reference-body::-webkit-scrollbar-button { display: none; }
+@media (forced-colors: active) {
+  .workspace-directory-content, .workspace-directory-content :deep(*), .workspace-reference-body { scrollbar-color: auto; scrollbar-width: thin; }
+}
+
+.workspace-directory-content :deep(.wall__shelf-manuscript > .project-directory) { flex: 1 1 0%; min-height: 0; display: flex; flex-direction: column; }
+.workspace-directory-content :deep(.project-directory > :not(.directory-tree)) { flex-shrink: 0; }
+.workspace-directory-content :deep(.project-directory > .directory-tree) { flex: 1 1 0%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.workspace-directory-content :deep(.wall__shelf-manuscript.shows-project-tree) { padding-block-start: 0; }
+.workspace-directory-content :deep(.directory-project) { min-height: 48px; padding-inline: 12px 8px; }
+@media (pointer: fine) {
+  .workspace-activity-bar { padding-top: 4px; gap: 3px; align-items: center; }
+  .workspace-activity-bar button { width: 34px; height: 36px; border-radius: 6px; }
+  .workspace-activity-bar button.active::before { content: ''; position: absolute; inset-inline-start: -5px; width: 2px; height: 14px; border-radius: 2px; background: currentColor; }
+}
 </style>

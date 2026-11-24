@@ -198,7 +198,7 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
     if (!localOnly(res)) return
     try {
       const result = service.readWorldbookFolder(String(req.query.path || ''))
-      return res.json({ ok: true, worldbook: result.worldbook, warnings: result.warnings })
+      return res.json({ ok: true, worldbook: result.worldbook, worldbookFingerprint: result.worldbookFingerprint, warnings: result.warnings })
     } catch (error) {
       const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_READ', message: error.message })
@@ -219,7 +219,7 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
     if (!localOnly(res)) return
     try {
       const result = service.readBookFromFolder(String(req.query.path || ''))
-      return res.json({ ok: true, book: result.book, warnings: result.warnings })
+      return res.json({ ok: true, book: result.book, incompleteOutline: result.incompleteOutline, bookFingerprint: result.bookFingerprint, mirrorRevision: result.mirrorRevision, warnings: result.warnings })
     } catch (error) {
       const code = error?.code === 'ERR_INVALID_INPUT' || error?.code === 'ERR_DIR_NOT_FOUND' ? 400 : 500
       return res.status(code).json({ error: error?.code || 'ERR_MIRROR_READ', message: error.message })
@@ -267,9 +267,10 @@ export function createLocalMirrorRouter({ service = createLocalMirrorService() }
   router.post('/sync', (req, res) => {
     try {
       const result = service.mirrorBook(req.body)
-      return res.json({ ok: true, dir: result.dir, counts: result.counts, projectRoot: result.projectRoot })
+      return res.json({ ok: true, ...result })
     } catch (error) {
       if (error?.code === 'ERR_INVALID_INPUT') return res.status(400).json({ error: 'ERR_INVALID_INPUT', message: error.message })
+      if (['ERR_SYNC_CONFLICT', 'ERR_SYNC_BUSY', 'ERR_PROJECT_OFFLINE', 'ERR_PROJECT_IDENTITY', 'ERR_LOCAL_EDIT', 'ERR_INCOMPLETE_READ', 'ERR_SYNC_RECOVERY'].includes(error?.code)) return res.status(409).json({ error: error.code, message: error.message })
       return res.status(500).json({ error: 'ERR_MIRROR_WRITE', message: error.message })
     }
   })

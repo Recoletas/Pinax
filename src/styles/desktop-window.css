@@ -1,0 +1,9 @@
+/* Windows 原生窗口按钮占据同一条工作区顶栏；网页不受影响。 */
+html[data-pinax-desktop='windows'] .ws-tabs {
+  padding-right: calc(150px / var(--desktop-ui-scale, 1));
+  min-height: calc(48px / var(--desktop-ui-scale, 1));
+  -webkit-app-region: drag;
+}
+html[data-pinax-desktop='windows'] .ws-tabs :is(button, a, input, select, summary, [role='tab'], .ws-tab-slot, .shell-tab-actions) {
+  -webkit-app-region: no-drag;
+}

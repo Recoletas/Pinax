@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import express from 'express'
+import { spawnSync } from 'node:child_process'
 import { createLocalMirrorService } from '../server/services/localMirrorService.js'
 import { recoverMirrorTransaction } from '../server/services/localMirrorTransaction.js'
 import { createLocalMirrorRouter } from '../server/routes/localMirror.js'
@@ -39,6 +40,46 @@ try {
   fs.writeFileSync(`${first.dir}.pinax-sync.json`, JSON.stringify({ hadOriginal: true, committed: false }))
   recoverMirrorTransaction(first.dir)
   check(fs.existsSync(archive) && !fs.existsSync(path.join(first.dir, 'broken')), '中断事务恢复旧树，资料完整')
+  const boundRoot = path.join(temporary, 'bound')
+  const bound = service.createProjectAt({ path: boundRoot, name: '绑定作品', kind: 'novel', bookId: 'bound' })
+  const browser = { source: 'browser-mirror', expectedProjectId: bound.manifest.projectId, baseRevision: 0, book: { ...book, id: 'bound' } }
+  const synced = service.mirrorBook({ ...browser, bookBaseRevision: 0 })
+  const newer = { ...browser.book, chapters: [{ ...book.chapters[0], content: '由文件端保存的版本' }] }
+  service.mirrorBook({ book: newer, baseRevision: synced.revision })
+  assert.throws(() => service.mirrorBook({ ...browser, baseRevision: synced.revision }), { code: 'ERR_SYNC_CONFLICT' })
+  check(service.readBookFromFolder(boundRoot).book.chapters[0].content === newer.chapters[0].content, '旧浏览器镜像不能覆盖正式文件保存')
+  fs.renameSync(boundRoot, boundRoot + '-offline')
+  assert.throws(() => service.mirrorBook(browser), { code: 'ERR_PROJECT_OFFLINE' })
+  fs.renameSync(boundRoot + '-offline', boundRoot)
+  const foreign = path.join(boundRoot, '约束', '人在同步时新增.md')
+  const rename = fs.renameSync
+  fs.renameSync = (from, to) => {
+    if (to === path.join(boundRoot + '.pinax-sync.json', 'install.json')) fs.writeFileSync(foreign, '作者手写')
+    return rename(from, to)
+  }
+  try { service.mirrorBook({ book: newer }) } finally { fs.renameSync = rename }
+  check(fs.readFileSync(foreign, 'utf8') === '作者手写', '同步中新增的未接管文件原位保留')
+
+  for (const stopAt of ['owner', 'install']) {
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+      import fs from 'node:fs'
+      import path from 'node:path'
+      import { createLocalMirrorService } from ${JSON.stringify(new URL('../server/services/localMirrorService.js', import.meta.url).href)}
+      const [root, stopAt] = process.argv.slice(1)
+      const service = createLocalMirrorService({ rootPath: path.join(root, 'books'), appDataPath: path.join(root, 'app') })
+      const target = path.join(root, 'bound')
+      const rename = fs.renameSync
+      fs.renameSync = (from, to) => {
+        rename(from, to)
+        if ((stopAt === 'owner' && to === target + '.pinax-sync.json') ||
+          (stopAt === 'install' && path.dirname(from) === target + '.pinax-sync.json' && path.basename(from).startsWith('next-'))) process.exit(77)
+      }
+      service.mirrorBook({ book: { id:'bound', title:'部分安装', chapters:[{id:'chapter-a', title:'第一章', content:'模拟中断'}] } })
+    `, temporary, stopAt])
+    assert.equal(child.status, 77, child.stderr.toString())
+    recoverMirrorTransaction(boundRoot)
+    check(service.readBookFromFolder(boundRoot).book.chapters[0].content === newer.chapters[0].content, stopAt + ' 阶段中断保留已提交正文')
+  }
   process.env.PINAX_PUBLIC_ORIGINS = 'https://example.invalid'
   const app = express(); app.use(express.json()); app.use('/api/localmirror', createLocalMirrorRouter({ service }))
   server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.on('listening', resolve))

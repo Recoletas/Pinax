@@ -1,16 +1,8 @@
-// 浏览器状态本地化纯逻辑（W6·C 全量本地化）——键裁定表 / 浏览器状态快照 / 恢复计划 / 湮灭执行。
-//
-// 目标（作者原话）：「彻底湮灭所有浏览器缓存内容，把全部信息本地化」——跨浏览器打开零差异：
-// 浏览器侧只剩可丢缓存，刷新/换浏览器/清空 localStorage 后全部状态从 server 项目文件恢复。
-//
-// 边界：
-// - 零 vue/pinia 依赖；storage 与 IndexedDB 用量均可注入，node 冒烟直测；
-// - 恢复计划的文件侧语义复用 A3 口径（worldbookFileRepository.resolveWorldbookLoadSource）：
-//   文件有 → 拉文件；文件无浏览器有 → 保留并提示补推；冲突 → 文件优先，仅当浏览器 revision
-//   严格更新（有未同步修订）时让位给浏览器并提示补推；
-// - 安全敏感项（模型 key / provider 配置）必须留浏览器：永不写入服务器文件、永不进冒烟产物、
-//   湮灭永不沾——annihilateBrowserCache 内置第二道守卫，计划数据损坏时也拒绝清除。
-// - 本表未裁定的键（unknown）一律保留：湮灭只清计划批准的键。
+import { readStoredText } from '../storage/writingStorageCodec.js'
+import { captureStorageValue, isWritingChangesKey, removeStoredValue, storageValueMatches } from '../storage/writingChapterStorage.js'
+import { buildWorldbookRawFromFiles } from '../worldbook/worldbookFileRepository.js'
+// File availability enables explicit recovery. Deleting a browser copy also
+// requires proof that the same project's files recover every stored field.
 
 export const LOCALIZATION_CATEGORIES = Object.freeze(['file-source', 'cache-droppable', 'browser-only'])
 
@@ -57,17 +49,15 @@ export const LOCALIZATION_KEY_PLAN = Object.freeze([
   {
     key: 'active_worldbook_id',
     domain: 'worldbook',
-    category: 'file-source',
-    restore: 'derive:writing_books',
-    reason: '当前世界书指针——从 writing_books.worldbookId 绑定派生恢复，不单独落文件'
+    category: 'browser-only',
+    reason: '当前世界书选择属于设备，可能与当前项目的绑定不同'
   },
   {
     key: IDB_SOURCE_ARCHIVE_PLAN_KEY,
     domain: 'source-archive',
-    category: 'file-source',
-    restore: 'archive-folder',
+    category: 'browser-only',
     indexedDb: true,
-    reason: '世界书资料全文/chunk 本波文件化：资料/归档/<docId>.json（含 chunk）；GET /api/localmirror/sources 读回'
+    reason: '资料库跨作品共享并包含创作工作区；项目文件可补回已归档的资料原文'
   },
 
   /* ── IndexedDB 未文件化域 ──────────────────────────────────────────────── */
@@ -95,8 +85,8 @@ export const LOCALIZATION_KEY_PLAN = Object.freeze([
   {
     key: 'legacy_image_library',
     domain: 'media-legacy',
-    category: 'cache-droppable',
-    reason: '旧图库迁移源——媒体资产链已迁移，残余为迁移输入缓存'
+    category: 'browser-only',
+    reason: '旧图库可能仍含未完成迁移的图片'
   },
   {
     key: 'pinax_knowledge_read_model_enabled',
@@ -221,39 +211,51 @@ function byteLengthOf(text) {
 
 /** 从原始 JSON 抽最近更新时间（对象 updatedAt/createdAt；数组取各项最大值）；不可得返回 null。 */
 export function extractUpdatedAt(rawText) {
-  try {
-    const parsed = JSON.parse(rawText)
-    const pick = (value) => {
-      if (!value || typeof value !== 'object') return ''
-      return String(value.updatedAt || value.createdAt || '')
-    }
-    if (Array.isArray(parsed)) {
-      return parsed.map(pick).filter(Boolean).sort().at(-1) || null
-    }
-    return pick(parsed) || null
-  } catch {
-    return null
-  }
+  return updatedAtOf(parseJson(rawText))
 }
 
-/**
- * 各域现状快照：localStorage 逐键（存在性+大小+updatedAt+裁定归属）+ 可选 IndexedDB 用量。
- * idbUsage 形如 { '@idb:pinax-source-archive': { exists, bytes } }（浏览器内由组件经
- * estimateSourceArchiveUsage 等注入；node 冒烟直接给假数据）。
- */
+function updatedAtOf(value) {
+  const revision = row => String(row?.updatedAt || row?.createdAt || '')
+  return Array.isArray(value) ? value.reduce((latest, row) => {
+    const timestamp = revision(row)
+    return timestamp > latest ? timestamp : latest
+  }, '') || null : revision(value) || null
+}
+
+const snapshotReviews = new WeakMap()
+const planReviews = new WeakMap()
+
+function localizationError(message) {
+  return Object.assign(new Error(message), { localizationMessage: message })
+}
+
+function parseJson(text) {
+  try { return JSON.parse(text) } catch { return null }
+}
+
 export function collectBrowserState({ storage = defaultStorage(), idbUsage = null } = {}) {
   const keys = []
+  const reviewed = new Map()
   if (storage) {
     for (let index = 0; index < storage.length; index += 1) {
       const key = storage.key(index)
-      if (key === null || key === undefined) continue
+      if (key === null || key === undefined || isWritingChangesKey(key)) continue
       const raw = storage.getItem(key)
       const plan = matchLocalizationKey(key)
+      let version = raw
+      let logical = raw
+      if (key === 'writing_books') {
+        version = captureStorageValue(storage, key)
+        logical = readStoredText(storage, key)
+        if (!storageValueMatches(storage, key, version)) throw localizationError('书架正在变化，请重新扫描。')
+      }
+      const data = plan?.category === 'file-source' ? parseJson(logical) : null
+      if (raw !== null && ['file-source', 'cache-droppable'].includes(plan?.category)) reviewed.set(key, { version, data })
       keys.push({
         key,
         exists: raw !== null,
-        bytes: raw === null ? 0 : byteLengthOf(String(raw)),
-        updatedAt: raw === null ? null : extractUpdatedAt(raw),
+        bytes: raw === null ? 0 : byteLengthOf(raw) + (version?.changes ? byteLengthOf(version.changes) : 0),
+        updatedAt: updatedAtOf(data),
         planKey: plan?.key ?? null,
         domain: plan?.domain ?? 'unknown',
         category: plan?.category ?? 'unknown',
@@ -280,11 +282,13 @@ export function collectBrowserState({ storage = defaultStorage(), idbUsage = nul
     }
   }
   const totalBytes = keys.reduce((sum, item) => sum + item.bytes, 0)
-  return {
+  const snapshot = {
     at: new Date().toISOString(),
     keys,
     totals: { keys: keys.length, bytes: totalBytes, unknownKeys: keys.filter((item) => item.category === 'unknown').length }
   }
+  snapshotReviews.set(snapshot, reviewed)
+  return snapshot
 }
 
 /* ---------- 恢复计划（A3 口径：文件优先 + revision 仲裁） ---------- */
@@ -297,21 +301,49 @@ function isUsableFileWorldbook(worldbook) {
   return !!worldbook && typeof worldbook === 'object' && Array.isArray(worldbook.entries) && worldbook.entries.length > 0
 }
 
-/**
- * serverState（组件经既有 API 组装）：
- * {
- *   books:         { available, book }         — GET /api/localmirror/book（注册表绑定项目根）
- *   worldbook:     { available, worldbook, mismatch? } — GET /api/localmirror/worldbook
- *   sourceArchive: { available, sources }      — GET /api/localmirror/sources
- * }
- *
- * 语义（冻结）：
- * - 文件有 → restore-from-files（拉文件；冲突时文件优先）；
- * - 文件无浏览器有 → keep-browser + pushPending（提示补推到文件）；
- * - 冲突（两边都有）→ 文件优先（arbitration:'file-first'），仅当浏览器 revision 严格更新
- *   （有尚未同步的修订）时让位浏览器：keep-browser + pushPending（arbitration:'revision-browser-newer'）。
- * 湮灭批准集 = restore-from-files / clear-cache 项携带的具体键；keep-browser 项永远不携带键。
- */
+// File readers add derived paths and defaults. Every browser field must still
+// survive a cold restore, including unknown legacy fields and ordered arrays.
+function coversStoredValue(disk, stored) {
+  if (disk === stored) return true
+  if (!disk || !stored || typeof disk !== 'object' || typeof stored !== 'object') return false
+  if (Array.isArray(stored) !== Array.isArray(disk)) return false
+  if (Array.isArray(stored) && disk.length !== stored.length) return false
+  return Object.keys(stored).every(key => Object.hasOwn(disk, key) && coversStoredValue(disk[key], stored[key]))
+}
+
+export function fileBookToWritingBook(fileBook, existing) {
+  const nowIso = new Date().toISOString()
+  const { outline, chapters, explorations, ...metadata } = fileBook
+  return {
+    ...existing,
+    ...metadata,
+    id: String(fileBook.id),
+    title: String(fileBook.title || existing?.title || fileBook.id),
+    updatedAt: fileBook.updatedAt || nowIso,
+    outlineNodes: outline?.nodes || [],
+    outlineEdges: outline?.edges || [],
+    explorationDocuments: explorations || [],
+    chapters: chapters || []
+  }
+}
+
+function matchesReviewedBook(plan, book) {
+  const review = planReviews.get(plan)
+  if (!review || !review.readableShelf) return false
+  const expected = review.book
+  return coversStoredValue(expected, book) && coversStoredValue(book, expected)
+}
+
+export function readReviewedShelfForRestore(plan, storage = defaultStorage()) {
+  const raw = readStoredText(storage, 'writing_books')
+  const shelf = raw === null ? [] : parseJson(raw)
+  const review = planReviews.get(plan)
+  if (!Array.isArray(shelf) || !review) throw localizationError('本机书架未能完整读取，请重新扫描。')
+  const matches = shelf.filter(row => row && String(row.id) === review.bookId)
+  if (matches.length > 1 || !matchesReviewedBook(plan, matches[0] || null)) throw localizationError('本机作品在预览后已修改，请重新扫描。')
+  return shelf
+}
+
 export function buildRestorePlan(snapshot, serverState = {}) {
   const state = snapshot && typeof snapshot === 'object' ? snapshot : { keys: [] }
   const browserKeys = Array.isArray(state.keys) ? state.keys : []
@@ -321,47 +353,66 @@ export function buildRestorePlan(snapshot, serverState = {}) {
   const actions = []
 
   /* 书域（writing_books ↔ 正文/大纲/构思 + .pinax 元数据） */
-  const fileBook = isUsableFileBook(serverState?.books?.book) ? serverState.books.book : null
-  const browserBookKeys = keysOf((item) => item.domain === 'books')
-  // revision 仲裁：快照里已抽好的 writing_books updatedAt（数组取各项最大值），不回读 storage。
-  const browserBookRevision = existing.find((item) => item.key === 'writing_books')?.updatedAt || ''
+  const reviewed = snapshotReviews.get(state) || new Map()
+  const owner = String(serverState.bookId || '')
+  const diskBook = serverState.books
+  const fileBook = diskBook?.available && isUsableFileBook(diskBook.book) && (!owner || String(diskBook.book.id) === owner)
+    && !diskBook.incompleteOutline && !diskBook.warnings?.length ? diskBook.book : null
+  const shelf = reviewed.get('writing_books')?.data
+  const bookId = owner || String(fileBook?.id || '')
+  const book = Array.isArray(shelf) ? shelf.find(item => String(item?.id) === bookId) || null : null
+  const browserBookRevision = book?.updatedAt
+  const browserBookKeys = keysOf(item => item.key === 'writing_books')
   if (fileBook) {
-    const conflict = browserBookKeys.length > 0
+    const conflict = !!book
     const browserNewer = conflict && browserBookRevision && String(fileBook.updatedAt || '') && browserBookRevision > String(fileBook.updatedAt)
     if (browserNewer) {
-      actions.push({ domain: 'books', type: 'keep-browser', keys: [], pushPending: true, conflict: true, arbitration: 'revision-browser-newer', note: `浏览器侧有未同步修订（${browserBookRevision} > 文件 ${fileBook.updatedAt}）——补推后文件追平，湮灭不动本书` })
+      actions.push({ domain: 'books', type: 'keep-browser', keys: [], pushPending: true, conflict: true, arbitration: 'revision-browser-newer', note: '本机书稿更新于 {browser}，文件更新于 {file}。补推前保留本机书稿。', noteArgs: { browser: browserBookRevision, file: fileBook.updatedAt } })
     } else {
-      actions.push({ domain: 'books', type: 'restore-from-files', keys: [...browserBookKeys], pushPending: false, conflict, arbitration: conflict ? 'file-first' : null, note: conflict ? '两侧都有——文件优先（A3 口径），恢复后浏览器副本被文件覆盖' : '从项目文件夹恢复书+章节' })
+      const recoverable = serverState.canLock !== false && book && shelf.length === 1 && (!book.updatedAt || fileBook.updatedAt)
+        && coversStoredValue(fileBookToWritingBook(fileBook, null), book)
+      actions.push({ domain: 'books', type: 'restore-from-files', keys: recoverable ? ['writing_books'] : [], pushPending: false, conflict, arbitration: conflict ? 'file-first' : null, note: recoverable ? '本机只有当前作品，书稿与文件已核对，可清理本机副本。' : '可从项目文件恢复当前作品；清理时保留含其他作品或独有数据的书架。' })
     }
-  } else if (browserBookKeys.length) {
-    actions.push({ domain: 'books', type: 'keep-browser', keys: [], pushPending: true, conflict: false, arbitration: null, note: '文件侧没有可读回的书（未绑定/目录缺失）——保留浏览器副本并提示补推' })
+  } else if (book || (!owner && browserBookKeys.length)) {
+    actions.push({ domain: 'books', type: 'keep-browser', keys: [], pushPending: !diskBook?.available && !diskBook?.readError, conflict: false, arbitration: null, note: '当前目录没有可完整读回的同一作品，书架保留在本机。' })
   } else {
     actions.push({ domain: 'books', type: 'empty', keys: [], pushPending: false, conflict: false, arbitration: null, note: '两侧都没有书数据' })
   }
 
   /* 世界书域（worldbook_* ↔ 世界书/；恢复本身由 worldStore A3 文件优先自动接管） */
-  const worldbookMismatch = serverState?.worldbook?.mismatch === true
-  const fileWorldbook = !worldbookMismatch && isUsableFileWorldbook(serverState?.worldbook?.worldbook) ? serverState.worldbook.worldbook : null
-  const browserWorldbookKeys = keysOf((item) => item.domain === 'worldbook')
+  const diskWorld = serverState.worldbook
+  const worldbookId = String(fileBook?.worldbookId || book?.worldbookId || '')
+  const worldbookMismatch = diskWorld?.mismatch === true || (diskWorld?.available &&
+    (!fileBook || !worldbookId || String(diskWorld.worldbook?.id) !== worldbookId ||
+      (book?.worldbookId && String(book.worldbookId) !== worldbookId)))
+  const fileWorldbook = diskWorld?.available && !worldbookMismatch && !diskWorld.warnings?.length
+    && isUsableFileWorldbook(diskWorld.worldbook) ? diskWorld.worldbook : null
+  const worldKey = 'worldbook_' + worldbookId
+  const localWorld = reviewed.get(worldKey)?.data
+  const browserWorldbookKeys = keysOf(item => item.key === worldKey && item.category === 'file-source')
   if (worldbookMismatch) {
     actions.push({ domain: 'worldbook', type: 'keep-browser', keys: [], pushPending: false, conflict: false, arbitration: null, note: '项目世界书归属另一 worldbook id（A3 失配守卫）——拒绝读入，保留浏览器' })
   } else if (fileWorldbook) {
     const conflict = browserWorldbookKeys.length > 0
-    actions.push({ domain: 'worldbook', type: 'restore-from-files', keys: [...browserWorldbookKeys], pushPending: false, conflict, arbitration: conflict ? 'file-first' : null, note: `文件 ${fileWorldbook.entries.length} 条——worldStore 文件优先自动接管；恢复后清掉的浏览器键可由文件还原` })
+    const anotherOwner = Array.isArray(shelf) && shelf.some(row => row && String(row.id) !== bookId && String(row.worldbookId) === worldbookId)
+    const recoverable = serverState.canLock !== false && book && !anotherOwner && localWorld && String(localWorld.id) === worldbookId
+      && !Object.hasOwn(localWorld, 'updatedAt') && !localWorld.pendingFileSync
+      && coversStoredValue(buildWorldbookRawFromFiles(fileWorldbook, { worldbookId }), localWorld)
+    actions.push({ domain: 'worldbook', type: 'restore-from-files', keys: recoverable ? browserWorldbookKeys : [], pushPending: false, conflict, arbitration: conflict ? 'file-first' : null, note: '当前项目文件有 {count} 个条目。其他世界书、草稿和仅本机的字段保留。', noteArgs: { count: fileWorldbook.entries.length } })
   } else if (browserWorldbookKeys.length) {
-    actions.push({ domain: 'worldbook', type: 'keep-browser', keys: [], pushPending: true, conflict: false, arbitration: null, note: '文件侧没有世界书条目——保留浏览器并提示补推（双写会在可用时自动推）' })
+    actions.push({ domain: 'worldbook', type: 'keep-browser', keys: [], pushPending: !diskWorld?.readError && !diskWorld?.warnings?.length && !diskWorld?.available, conflict: false, arbitration: null, note: '文件侧没有世界书条目——保留浏览器并提示补推（双写会在可用时自动推）' })
   } else {
     actions.push({ domain: 'worldbook', type: 'empty', keys: [], pushPending: false, conflict: false, arbitration: null, note: '两侧都没有世界书数据' })
   }
 
   /* 资料归档域（IndexedDB pinax-source-archive ↔ 资料/归档/*.json） */
   const fileSources = Array.isArray(serverState?.sourceArchive?.sources) ? serverState.sourceArchive.sources : []
-  const fileArchiveAvailable = serverState?.sourceArchive?.available === true && fileSources.length > 0
+  const fileArchiveAvailable = !!fileBook && serverState?.sourceArchive?.available === true && fileSources.length > 0
   const archiveBrowser = existing.find((item) => item.key === IDB_SOURCE_ARCHIVE_PLAN_KEY)
   if (fileArchiveAvailable) {
-    actions.push({ domain: 'source-archive', type: 'restore-from-files', keys: archiveBrowser?.exists ? [IDB_SOURCE_ARCHIVE_PLAN_KEY] : [], pushPending: false, conflict: archiveBrowser?.exists === true, arbitration: archiveBrowser?.exists ? 'file-first' : null, note: `文件侧 ${fileSources.length} 份归档（含 chunk）——读回后经 restoreSourceArchiveRecords 还原 IndexedDB` })
+    actions.push({ domain: 'source-archive', type: 'restore-from-files', keys: [], pushPending: false, conflict: archiveBrowser?.exists === true, arbitration: archiveBrowser?.exists ? 'file-first' : null, note: '项目文件有 {count} 份归档可恢复。本机共享资料和创作工作区保留。', noteArgs: { count: fileSources.length } })
   } else if (archiveBrowser?.exists) {
-    actions.push({ domain: 'source-archive', type: 'keep-browser', keys: [], pushPending: true, conflict: false, arbitration: null, note: '文件侧没有归档——保留 IndexedDB 并提示补推（资料/归档）' })
+    actions.push({ domain: 'source-archive', type: 'keep-browser', keys: [], pushPending: false, conflict: false, arbitration: null, note: '当前项目没有可恢复的归档。本机共享资料和创作工作区保留。' })
   } else {
     actions.push({ domain: 'source-archive', type: 'empty', keys: [], pushPending: false, conflict: false, arbitration: null, note: '两侧都没有资料归档' })
   }
@@ -377,7 +428,7 @@ export function buildRestorePlan(snapshot, serverState = {}) {
   }
 
   const clearKeys = actions.filter((item) => item.type === 'restore-from-files' || item.type === 'clear-cache').flatMap((item) => item.keys)
-  return {
+  const plan = {
     at: new Date().toISOString(),
     actions,
     summary: {
@@ -389,53 +440,27 @@ export function buildRestorePlan(snapshot, serverState = {}) {
     },
     clearKeys
   }
+  const versions = new Map(clearKeys.filter(key => reviewed.has(key)).map(key => [key, reviewed.get(key).version]))
+  planReviews.set(plan, { versions, bookId, owner: JSON.stringify([bookId, serverState.projectRoot || '']), book,
+    readableShelf: !browserBookKeys.length || Array.isArray(shelf) })
+  return plan
 }
 
 /* ---------- 湮灭执行（只清计划批准的键；安全敏感项永不沾） ---------- */
 
-/**
- * 按 plan.clearKeys 清浏览器侧。第二道守卫逐键复核裁定：
- * - 类别必须是 file-source / cache-droppable（计划损坏也不清 browser-only/unknown）；
- * - sensitive 永不清；IndexedDB 伪键只经注入的 clearner 执行，无 clearner 记 skipped。
- * 返回 { cleared, kept, refused, idbCleared, idbSkipped }。
- */
-export function annihilateBrowserCache(plan, { storage = defaultStorage(), clearners = null } = {}) {
+// Check the original preview, freshly read project files, and the exact
+// local version again at the write boundary. A single project never owns
+// the entire shared IndexedDB archive.
+export function annihilateBrowserCache(plan, { storage = defaultStorage(), currentPlan = null } = {}) {
   const cleared = []
   const kept = []
   const refused = []
-  const idbCleared = []
-  const idbSkipped = []
-  const requested = Array.isArray(plan?.clearKeys) ? plan.clearKeys.map(String) : []
-  for (const key of requested) {
-    const planEntry = matchLocalizationKey(key)
-    if (!planEntry) {
-      refused.push({ key, reason: 'unknown-key' })
-      continue
-    }
-    if (planEntry.sensitive === true || planEntry.category === 'browser-only') {
-      refused.push({ key, reason: 'browser-only-or-sensitive' })
-      continue
-    }
-    if (planEntry.category !== 'file-source' && planEntry.category !== 'cache-droppable') {
-      refused.push({ key, reason: 'not-approved-category' })
-      continue
-    }
-    if (planEntry.indexedDb === true) {
-      const clearer = clearners && typeof clearners === 'object' ? clearners[key] : null
-      if (typeof clearer !== 'function') {
-        idbSkipped.push({ key, reason: 'no-clearner' })
-        continue
-      }
-      try {
-        awaitResolve(clearer)
-        idbCleared.push(key)
-      } catch (error) {
-        idbSkipped.push({ key, reason: String(error?.message || error || 'clearner-failed') })
-      }
-      continue
-    }
-    if (!storage) {
-      refused.push({ key, reason: 'no-storage' })
+  const reviewed = planReviews.get(plan)
+  const fresh = planReviews.get(currentPlan)
+  for (const key of new Set(plan?.clearKeys || [])) {
+    const entry = matchLocalizationKey(key)
+    if (!reviewed?.versions.has(key) || !entry || entry.indexedDb || entry.category === 'browser-only') {
+      refused.push({ key, reason: 'unreviewed' })
       continue
     }
     try {
@@ -443,53 +468,28 @@ export function annihilateBrowserCache(plan, { storage = defaultStorage(), clear
         kept.push(key)
         continue
       }
-      storage.removeItem(key)
+      if ((entry.category === 'file-source' && (!fresh?.versions.has(key) || fresh.owner !== reviewed.owner))
+        || !storageValueMatches(storage, key, reviewed.versions.get(key))) {
+        refused.push({ key, reason: 'changed-or-unrecoverable' })
+        continue
+      }
+      removeStoredValue(storage, key)
+      if (storage.getItem(key) !== null) throw new Error('remove-failed')
       cleared.push(key)
     } catch (error) {
-      refused.push({ key, reason: String(error?.message || error || 'remove-failed') })
+      refused.push({ key, reason: String(error?.message || error) })
     }
   }
-  return { cleared, kept, refused, idbCleared, idbSkipped }
+  return { cleared, kept, refused }
 }
 
-/** 同步上下文里触发异步 clearer（fire-and-forget；结果经 returned promise 校验）。 */
-function awaitResolve(clearer) {
-  const result = clearer()
-  if (result && typeof result.then === 'function') {
-    // 湮灭是显式用户动作后的同步批处理；异步 clearer 的失败在其内部收敛（IndexedDB 事务自幂等）。
-    result.catch(() => {})
-  }
-}
-
-/* ---------- 补推载荷组装（纯函数；推送由组件经 /api/localmirror/sync 执行） ---------- */
-
-/**
- * IndexedDB 归档记录 { artifacts, chunks } → sync 载荷的 sourceArchive 片段
- * { docId → { meta, chunks[] } }；chunk 按 sourceId 归到所属 artifact。
- */
-export function buildArchivePushPayload(archiveRecords) {
-  const artifacts = Array.isArray(archiveRecords?.artifacts) ? archiveRecords.artifacts : []
-  const chunks = Array.isArray(archiveRecords?.chunks) ? archiveRecords.chunks : []
-  const chunksBySource = new Map()
-  for (const chunk of chunks) {
-    const sourceId = String(chunk?.sourceId || '')
-    if (!sourceId) continue
-    if (!chunksBySource.has(sourceId)) chunksBySource.set(sourceId, [])
-    chunksBySource.get(sourceId).push(chunk)
-  }
-  const payload = {}
-  for (const artifact of artifacts) {
-    const docId = String(artifact?.id || '').trim()
-    if (!docId) continue
-    const chunkIds = new Set((Array.isArray(artifact?.chunkIds) ? artifact.chunkIds : []).map(String))
-    const own = (chunksBySource.get(docId) || []).filter((chunk) => !chunkIds.size || chunkIds.has(String(chunk?.id)))
-    payload[docId] = { meta: artifact, chunks: own }
-  }
-  return payload
-}
-
-/** 会话数组 → sync 载荷的 sessions 片段（深拷贝防引用泄漏；上限随 server LIMITS）。 */
-export function buildSessionsPushPayload(sessions, { max = 100 } = {}) {
-  const list = Array.isArray(sessions) ? sessions.filter((session) => session && typeof session === 'object') : []
-  return JSON.parse(JSON.stringify(list.slice(-max)))
+/** Only sessions with an unambiguous project/unique worldbook owner may enter its folder. */
+export function buildSessionsPushPayload(sessions, book, books, { max = 100 } = {}) {
+  if (!Array.isArray(sessions) || !book?.id) return []
+  const ownsWorldbook = book.worldbookId && books.filter(row => row?.worldbookId === book.worldbookId).length === 1
+  const owned = sessions.filter(session => {
+    const owner = session?.bookId || session?.projectId
+    return owner ? String(owner) === String(book.id) : ownsWorldbook && session?.worldbookId === book.worldbookId
+  })
+  return owned.slice(-max)
 }

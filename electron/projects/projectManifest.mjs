@@ -27,10 +27,6 @@ export async function createProject(root, input, deps = {}) {
   const entries = await readdir(root)
   if (entries.length) throw desktopError(DESKTOP_ERROR_CODES.IO_FAILED, 'Project directory must be empty', { path: root })
 
-  for (const directory of PROJECT_DIRECTORIES) {
-    await mkdir(join(root, directory), { recursive: true })
-  }
-
   const timestamp = now().toISOString()
   const manifest = {
     schemaVersion: DESKTOP_PROJECT_SCHEMA_VERSION,
@@ -41,6 +37,16 @@ export async function createProject(root, input, deps = {}) {
   }
   const validation = validateProjectManifest(manifest)
   if (!validation.valid) throw desktopError(DESKTOP_ERROR_CODES.INVALID_INPUT, validation.error.message)
+
+  // Competing creators may both have observed an empty directory. Reserve
+  // the project namespace before either can publish a manifest or database.
+  try {
+    await mkdir(join(root, '.pinax'))
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error
+    throw desktopError(DESKTOP_ERROR_CODES.IO_FAILED, 'Project directory is already in use', { path: root })
+  }
+  for (const directory of PROJECT_DIRECTORIES) await mkdir(join(root, directory), { recursive: true })
 
   const temporaryPath = join(root, '.pinax/tmp', `${uuid()}.project.json`)
   const manifestPath = join(root, '.pinax/project.json')

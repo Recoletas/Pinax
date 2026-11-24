@@ -2,7 +2,7 @@
 import { computed, defineAsyncComponent, nextTick, reactive, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { useWorldStore, worldbookEntryEditFingerprint } from '../../stores/worldStore.js'
-import { buildGraph, entryCatDirOf, buildRelationChips, CAT_DIRS } from '../../services/worldbook/entryBrowserModel.js'
+import { buildGraph, entryCatDirOf, CAT_DIRS } from '../../services/worldbook/entryBrowserModel.js'
 import { isMachineLedgerEntry } from '../../services/worldbook/entryTableColumns.js'
 import { applyRelationRows, relationRowsFromEntry } from '../../services/worldbook/entryRelations.js'
 import { renameEntryKeys } from '../../services/worldbook/entryProfileTemplates.js'
@@ -33,7 +33,7 @@ const mode = ref(props.initialMode === 'graph' ? 'detail' : props.initialMode)
 const selectedId = ref(props.initialEntryId)
 const query = ref('')
 const graphCategory = ref('')
-const graphAll = ref(false)
+const graphScope = ref('links')
 const inspectorTab = ref(props.initialMode === 'detail' ? 'browse' : props.initialMode)
 const inspectorOpen = ref(false)
 const tableTarget = ref(null)
@@ -108,13 +108,13 @@ const current = computed(() => entries.value.find(entry => entry.id === selected
 const dirty = computed(() => Boolean(draft.id && (draft.name !== String(current.value?.name || '') || draft.content !== String(current.value?.content || ''))))
 const graph = computed(() => buildGraph(props.worldbook))
 const inspectorGraph = computed(() => {
-  if (graphAll.value || !selectedId.value) return graph.value
-  const ids = new Set([String(selectedId.value)])
-  for (const edge of graph.value.relations || []) {
-    if (edge.a === selectedId.value) ids.add(edge.b)
-    if (edge.b === selectedId.value) ids.add(edge.a)
-  }
-  return { ...graph.value, entries: graph.value.entries.filter(entry => ids.has(entry.id)), relations: graph.value.relations.filter(edge => ids.has(edge.a) && ids.has(edge.b)) }
+  if (graphScope.value === 'all' || !selectedId.value) return graph.value
+  const id = selectedId.value
+  const relations = graph.value.relations.filter(edge => (edge.a === id || edge.b === id) &&
+    (graphScope.value === 'links' ? edge.src.includes('link') : !edge.src.includes('link')))
+  const ids = new Set([id, ...relations.flatMap(edge => [edge.a, edge.b])])
+  return { ...graph.value, entries: graph.value.entries.filter(entry => ids.has(entry.id)), relations }
+
 })
 const visibleIds = computed(() => new Set(visible.value.map(entry => entry.id)))
 const highlightedIds = computed(() => searchResult.value ? hitIds.value : new Set(selectedId.value ? [selectedId.value] : []))
@@ -125,7 +125,16 @@ const searchErrorText = computed(() => {
   if (code === 'STALE_INDEX') return tr('本地索引与当前设定不同步，请同步后重新检索。')
   return searchError.value?.message || tr('关联检索暂不可用，仍可直接查找设定。')
 })
-const chips = computed(() => current.value ? buildRelationChips(current.value, entries.value).filter(chip => chip.resolved) : [])
+const chips = computed(() => {
+  const id = selectedId.value
+  const byId = new Map(entries.value.map(entry => [entry.id, entry]))
+  return inspectorGraph.value.relations.filter(edge => edge.a === id || edge.b === id).map(edge => {
+    const ref = edge.a === id ? edge.b : edge.a
+    const entry = byId.get(ref)
+    const declared = Boolean(edge.src?.includes('link'))
+    return { ref, entry, declared, label: declared ? '已关联' : edge.src?.includes('mention') ? '文中提及' : '标签关联' }
+  }).filter(chip => chip.entry).sort((a, b) => Number(b.declared) - Number(a.declared))
+})
 const effectiveMode = computed(() => mode.value)
 
 function loadDraft(entry) {
@@ -425,9 +434,8 @@ defineExpose({ flushAll })
         </div>
         <Teleport :to="tableTarget || 'body'" :disabled="effectiveMode === 'table' || !tableTarget"><EntryDataTable v-show="effectiveMode === 'table' || inspectorTab === 'table'" ref="table" :worldbook="worldbook" scope="all" :filters="searchResult ? {} : { cat: category, q: query }" :visible-ids="searchResult ? visibleIds : null" :selected-id="selectedId" embedded @reload="refreshFromStorage" @select="selectEntry" @open="async entry => { if (await selectEntry(entry)) await chooseMode('detail') }" /></Teleport>
       </div>
-      <SettingUsagePanel v-if="draft.id && !['base', 'foreshadow'].includes(category)" v-show="effectiveMode === 'detail'" :book-id="bookId" :worldbook="worldbook" :entry="current" :busy="busy" :can-insert="Boolean(insertionTarget && host)" :target-title="insertionTitle" @locate="locateUsage" @insert="insertName" />
     </main>
-    <aside class="setting-inspector" :aria-label="tr('设定工具')">
+    <aside class="setting-inspector" :class="{ 'is-browsing': inspectorTab === 'browse' }" :aria-label="tr('设定工具')">
       <header class="setting-inspector-head"><div v-if="inspectorTab === 'browse'" class="setting-browse-scope"><select :value="category" :aria-label="tr('设定分类')" @change="chooseCategory($event.target.value)"><option value="">{{ tr('全部设定') }}</option><option v-for="item in categories" :key="item" :value="item">{{ tr(settingCategoryLabel(item)) }}</option><option v-if="['base', 'foreshadow'].includes(category)" :value="category">{{ tr(category === 'base' ? '创作基调' : '伏笔') }}</option></select><span>{{ visible.length }}</span></div><strong v-else>{{ tr(inspectorTabs.find(item => item.id === inspectorTab)?.title || '设定') }}</strong><button type="button" :aria-label="tr('关闭设定工具')" @click="inspectorOpen = false"><WorkbenchIcon name="close" :size="16" /></button></header>
       <div v-show="inspectorTab === 'browse'" class="setting-inspector-browse">
         <div class="setting-search"><WorkbenchIcon name="search" :size="16" /><input v-model="query" type="search" :placeholder="tr('查找设定…')" :aria-label="tr('查找设定')" @keydown.enter="searchRelations" /></div>
@@ -443,22 +451,26 @@ defineExpose({ flushAll })
         <div ref="tableTarget" class="setting-table-target"></div>
       </div>
       <div v-show="inspectorTab === 'graph'" class="setting-inspector-preview setting-graph-panel">
-        <div class="setting-graph-scope" aria-label="关系图范围"><button type="button" :aria-pressed="!graphAll" @click="graphAll = false">{{ tr('当前关联') }}</button><button type="button" :aria-pressed="graphAll" @click="graphAll = true">{{ tr('全部设定') }}</button></div>
+        <div class="setting-graph-scope" aria-label="关系图范围"><button v-for="option in [{ id: 'links', label: '当前关联' }, { id: 'mentions', label: '间接关联' }, { id: 'all', label: '全部设定' }]" :key="option.id" type="button" :aria-pressed="graphScope === option.id" @click="graphScope = option.id">{{ tr(option.label) }}</button></div>
         <GraphCanvas controls labeled-nodes :focus-entry-id="selectedId" :graph="inspectorGraph" :visible-ids="searchResult ? visibleIds : null" :highlight-ids="highlightedIds" :cat="graphCategory" @update:cat="graphCategory = $event" @select="selectGraphEntry" @create-edge="proposeRelation" />
 
-        <div v-if="current" class="setting-relations"><h4>{{ current.name }}</h4><button v-for="chip in chips" :key="chip.ref" type="button" @click="selectEntry(chip.entry)"><WorkbenchIcon name="network" :size="15" /><span>{{ chip.entry.title }}</span></button><p v-if="!chips.length">{{ tr('还没有关联设定') }}</p><label>{{ tr('添加关联') }}<select v-model="relationTarget" :aria-label="tr('关联设定')"><option value="">{{ tr('选择关联对象') }}</option><option v-for="entry in entries.filter(item => item.id !== selectedId)" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select></label><button v-if="relationTarget" type="button" class="control-secondary" @click="proposeRelation({ fromId: selectedId, toId: relationTarget })">{{ tr('关联') }}</button></div>
+        <div v-if="current" class="setting-relations"><h4>{{ current.name }}</h4><button v-for="chip in chips" :key="chip.ref" type="button" @click="selectEntry(chip.entry)"><WorkbenchIcon name="network" :size="15" /><span>{{ chip.entry.name || chip.entry.title }}</span><small>{{ tr(chip.label) }}</small></button><p v-if="!chips.length">{{ tr('还没有关联设定') }}</p><label>{{ tr('添加关联') }}<select v-model="relationTarget" :aria-label="tr('关联设定')"><option value="">{{ tr('选择关联对象') }}</option><option v-for="entry in entries.filter(item => item.id !== selectedId)" :key="entry.id" :value="entry.id">{{ entry.name }}</option></select></label><button v-if="relationTarget" type="button" class="control-secondary" @click="proposeRelation({ fromId: selectedId, toId: relationTarget })">{{ tr('关联') }}</button></div>
         <p v-else>{{ tr('选一项设定查看关联。') }}</p>
       </div>
       <SettingEntryManagement v-if="current" v-show="inspectorTab === 'manage'" :key="`${worldbook.id}:${current.id}`" ref="management" :entry="current" :busy="busy" @change="managementDraft = $event" @save="saveManagement" @copy="copyEntry" @delete="requestDelete" />
       <p v-else-if="inspectorTab === 'manage'" class="setting-inspector-empty">{{ tr('选一项设定进行管理。') }}</p>
     </aside>
       <nav class="setting-tool-rail" :aria-label="tr('设定工具切换')"><button v-for="item in inspectorTabs" :key="item.id" type="button" :class="{ active: inspectorTab === item.id }" :aria-pressed="inspectorTab === item.id" :data-test="`setting-tool-${item.id}`" :aria-label="tr(item.title)" v-workbench-tooltip="tr(item.title)" @click="selectInspector(item.id)"><WorkbenchIcon :name="item.icon" :size="19" /></button></nav>
+      <SettingUsagePanel class="setting-workspace-bottom" v-if="draft.id && !['base', 'foreshadow'].includes(category)" :book-id="bookId" :worldbook="worldbook" :entry="current" :busy="busy" :can-insert="Boolean(insertionTarget && host)" :target-title="insertionTitle" @locate="locateUsage" @insert="insertName" />
     <CreateDialog v-if="createRequest" :request="createRequest" @close="createRequest = null" @created="created" />
     <Teleport to="body"><dialog v-if="deleteRequest" ref="deleteDialog" class="setting-delete-dialog" :aria-label="tr('删除设定')" @cancel.prevent="cancelDelete"><h2>{{ tr('删除「{name}」？', { name: deleteRequest.entry.name }) }}</h2><p>{{ tr('删除后无法撤销。正文中的文字不会被删除。') }}</p><div v-if="deleteRequest.impact.length"><p>{{ tr('以下设定关联了它，删除后关联将失效：') }}</p><ul><li v-for="entry in deleteRequest.impact" :key="entry.id">{{ entry.name }}</li></ul></div><p v-if="deleteRequest.placeImpact.total">{{ tr('地点引用：地图绑定 {map}，历史 {history} 项，地点关联 {relations} 项。', { map: deleteRequest.placeImpact.mapBinding ? 1 : 0, history: deleteRequest.placeImpact.historyRefs, relations: deleteRequest.placeImpact.relationRefs }) }}</p><p v-if="notice" role="alert">{{ notice }}</p><footer><button type="button" class="control-secondary" :disabled="busy" @click="cancelDelete">{{ tr('取消') }}</button><button type="button" class="control-primary" :disabled="busy" @click="confirmDelete">{{ busy ? tr('删除中…') : tr('删除') }}</button></footer></dialog></Teleport>
   </section>
 </template>
 <style scoped>
-.worldbook-content-workspace { display: grid; position: relative; grid-template-columns: minmax(0, 1fr) var(--writing-dock-width, clamp(420px, 31vw, 440px)) 52px; grid-template-rows: 52px minmax(0, 1fr); height: 100%; min-height: 0; min-width: 0; color: var(--text-primary); background: var(--surface-workbench); font: 14px/1.5 var(--font-sans); container-type: inline-size; container-name: setting-workspace; }
+.setting-relations small { margin-inline-start: auto; color: var(--text-muted); }
+
+.worldbook-content-workspace { display: grid; position: relative; grid-template-columns: minmax(0, 1fr) var(--writing-dock-width, clamp(420px, 31vw, 440px)) 52px; grid-template-rows: 52px minmax(0, 1fr) auto; height: 100%; min-height: 0; min-width: 0; color: var(--text-primary); background: var(--surface-workbench); font: 14px/1.5 var(--font-sans); container-type: inline-size; container-name: setting-workspace; }
+.setting-workspace-bottom { grid-column: 1 / -1; grid-row: 3; min-width: 0; }
 .setting-content-main { grid-column: 1; grid-row: 2; overflow: hidden; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .setting-content-toolbar { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 20px; border-bottom: 1px solid var(--hairline-soft); box-sizing: border-box; }
 .setting-content-toolbar select { max-width: 150px; }
@@ -533,14 +545,14 @@ button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 900px) {
   .worldbook-content-workspace { grid-template-columns: minmax(0, 1fr) 52px; }
   .setting-tool-rail { grid-column: 2; }
-  .setting-inspector { display: none; position: absolute; grid-column: 1 / -1; grid-row: 1 / -1; z-index: 4; inset: 52px 52px 0 0; border-left: 0; }
+  .setting-inspector { display: none; position: absolute; grid-column: 1 / -1; grid-row: 2; z-index: 4; inset: 0 52px 0 0; border-left: 0; }
   .inspector-open .setting-inspector { display: block; }
   .setting-inspector-head button { display: grid; }
   .setting-entry-document { padding: 28px 24px; }
 }
 .is-compact { grid-template-columns: minmax(0, 1fr) 52px; }
 .is-compact .setting-tool-rail { grid-column: 2; }
-.is-compact .setting-inspector { display: none; position: absolute; grid-column: 1 / -1; grid-row: 1 / -1; z-index: 4; inset: 52px 52px 0 0; border-left: 0; }
+.is-compact .setting-inspector { display: none; position: absolute; grid-column: 1 / -1; grid-row: 2; z-index: 4; inset: 0 52px 0 0; border-left: 0; }
 .is-compact.inspector-open .setting-inspector { display: block; }
 .is-compact .setting-inspector-head button { display: grid; }
 @media (pointer: coarse) { .setting-content-toolbar button, select, .setting-browse-new { min-height: 44px; } }
@@ -557,6 +569,14 @@ button:disabled { opacity: .5; cursor: default; }
 .setting-entry-properties > summary { display: flex; align-items: center; gap: 6px; min-height: 32px; list-style: none; }
 .setting-entry-properties > summary::-webkit-details-marker { display: none; }
 .setting-entry-properties[open] > summary > svg { transform: rotate(180deg); }
+.setting-table-target :deep(.edt-cell-btn) { min-height: 30px; padding: 4px 5px; font: 13px/1.55 var(--font-interface); white-space: normal; text-align: start; }
+.setting-table-target :deep(.edt-cell-name) { background: var(--surface-workbench); box-shadow: none; }
+.setting-table-target :deep(.edt-cell-btn.is-name) { font-weight: 550; }
+.setting-table-target :deep(.edt-row.selected) { background: var(--workbench-selected); }
+.setting-table-target :deep(.edt-row.selected .edt-cell-name) { background: var(--workbench-selected); }
+.setting-table-target :deep(.edt-cell-btn.is-empty) { color: var(--text-muted); }
+.setting-table-target :deep(.edt-col-hide) { opacity: 0; }
+.setting-table-target :deep(th:is(:hover, :focus-within) .edt-col-hide) { opacity: 1; }
 .setting-table-target, .setting-graph-target { min-width: 0; }
 .setting-inspector :deep(.entry-data-table), .setting-inspector :deep(.graph-canvas) { border: 0; border-radius: 0; background: transparent; }
 .setting-inspector :deep(.edt-title), .setting-inspector :deep([data-test="edt-add-character"]) { display: none; }
@@ -645,4 +665,15 @@ button:disabled { opacity: .5; cursor: default; }
 .setting-entry-list { margin-top: 12px; }
 .setting-inspector-head .setting-browse-scope { flex: 1; min-width: 0; margin: 0; }
 .setting-inspector-head .setting-browse-scope select { min-width: 0; font-weight: 600; }
+/* Keep the list and manuscript in their own scroll containers. */
+.setting-inspector.is-browsing {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+@media (min-width: 901px) {
+  .worldbook-content-workspace:not(.is-compact) .setting-inspector.is-browsing { display: grid; }
+}
+.setting-inspector-browse { display: flex; flex-direction: column; min-height: 0; }
+.setting-entry-list { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.setting-entry-list > button { flex-shrink: 0; }
+.setting-browse-new { flex-shrink: 0; }
 </style>

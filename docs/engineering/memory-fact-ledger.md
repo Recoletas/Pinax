@@ -1,5 +1,7 @@
 # ADR：事实账本（fact ledger）的作用域、记录类型与数据库 schema
 
+后续的[小说世界模型数据库设计](./novel-world-model.md)承接本 ADR 的作用域、版本链和证据约定，列出多值关系、角色传闻和读者揭示的已接入的作品工作台、地图读模型和浏览器验证。
+
 状态：2026-09-17 白天统一集成；生产创作 reader、完整 ZIP 和 C 跑团回执已接线。当前验收及未完成项见[组合回执](../agent-runs/nightly-20260917/integration-summary.md)。不设夜间 O 线。
 日期：2026-09-16。基线：`main@b5b2b56`。验证：`node scripts/memory-ledger-smoke.mjs`。
 

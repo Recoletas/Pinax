@@ -236,11 +236,33 @@ export function createScopedAuthoringLiveTargetReader(options = {}) {
 // 与 createAuthoringRunSession 入参同名的最小 repository bundle。
 // liveTargetReader 只在页面显式注入 live callback 时存在，避免制造一个会
 // 回退 frozen session 或当前页面目标的假读取器。
+async function readViewpointKnowledge({ projectId, worldbookId, actorId, storyAt, storyClock }) {
+  const { worldbookEntityKey } = await import('../../project/knowledgeReadModel/identity.js')
+  const { withLedgerDb } = await import('../../memory/ledger/ledgerDb.js')
+  const { readCharacterKnowledge } = await import('../../memory/ledger/knowledgeLedger.js')
+  const actorKey = worldbookEntityKey(worldbookId, actorId)
+  const result = await withLedgerDb(db => readCharacterKnowledge(db, {
+    scope: { domain: 'book', bookId: projectId }, actorKeys: [actorKey], storyAt, storyClock, includeInactive: true
+  }), { openTimeoutMs: 1500 })
+  if (!result.ok || result.incomplete) return null
+  function details(claim) {
+    const labels = new Map((claim.eventLabels || []).map(row => [row.entityRef, row.label]))
+    return [...(claim.literalValue ? [claim.literalValue.type === 'number' ? '数值' : '布尔值'] : []),
+      ...(claim.eventContext?.placeRefs || []).map(id => '发生地 ' + (labels.get(id) || id)),
+      ...(claim.eventContext?.participants || []).map(person => person.role + ' ' + (labels.get(person.entityRef) || person.entityRef))].join('，')
+  }
+  return result.actors[actorKey].facts.filter(row => row.belief !== 'forgotten').map(row => ({
+    subject: row.claim.subjectLabel || row.claim.subjectKey, predicate: row.claim.polarity === 'negative' ? '否定：' + row.claim.predicate : row.claim.predicate, object: row.claim.object, details: details(row.claim),
+    channel: row.lastKnownVia || row.knownVia, belief: row.belief, ...(row.lastSpeaker ? { speaker: row.lastSpeaker.label } : {})
+  }))
+}
+
 export function createAuthoringRunRepositoryAdapters({
   projectId = '',
   readLiveTarget = null
 } = {}) {
   const adapters = {
+    readViewpointKnowledge,
     worldbookRepository: createAuthoringWorldbookRepository(),
     referenceRepositories: createAuthoringReferenceRepositories(),
     memoryRepository: createAuthoringMemoryRepository({ projectId })

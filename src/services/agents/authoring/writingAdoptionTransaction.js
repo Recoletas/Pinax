@@ -43,7 +43,7 @@ function adoptionSceneDelta(candidate, effects) {
     locationId: effects.locationId || text(generated?.locationId) || text(projection.location?.id),
     viewpointCharacterId: text(generated?.viewpointCharacterId) || text(projection.viewpointCharacter?.id),
     time: generated?.time || (projection.time
-      ? { label: text(projection.time.label), period: text(projection.time.period) }
+      ? { label: text(projection.time.label), period: text(projection.time.period), storyAt: projection.time.storyAt, ...(projection.time.storyClock ? { storyClock: projection.time.storyClock, clockLabel: projection.time.clockLabel } : {}) }
       : undefined),
     source: text(generated?.source) || 'authoring-run-scene-intent'
   }

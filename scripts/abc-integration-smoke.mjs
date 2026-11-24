@@ -4,16 +4,27 @@
 import assert from 'node:assert/strict'
 import { chromium } from 'playwright'
 import { installDeterministicProviderMock } from './authoring-ui/provider-mock.mjs'
+import { buildCompanionKnowledgeContext } from '../src/services/experience/roleplay/roleplayCompanion.js'
 
 const BASE = process.env.PINAX_ABC_SMOKE_URL || 'http://127.0.0.1:5307'
 const browser = await chromium.launch({ headless: true })
-try {
+
+async function isolatedContext() {
   const context = await browser.newContext()
   await context.route('**/*', route => {
     const url = new URL(route.request().url())
-    if (url.origin !== new URL(BASE).origin || (url.pathname.startsWith('/api/') && route.request().method() !== 'GET')) return route.abort()
+    if (url.origin !== new URL(BASE).origin) return route.abort()
+    if (url.pathname === '/api/localmirror/projects' && route.request().method() === 'GET') {
+      return route.fulfill({ json: { ok: true, projects: [] } })
+    }
+    if (url.pathname.startsWith('/api/')) return route.abort()
     return route.continue()
   })
+  return context
+}
+
+try {
+  const context = await isolatedContext()
   const page = await context.newPage()
   await page.goto(BASE)
   await page.waitForSelector('.authoring-welcome')
@@ -59,7 +70,7 @@ try {
   })
   console.log('production-reader', JSON.stringify({ readerChecks: seeded.readerChecks, backupRows: seeded.backupRows }))
 
-  const fresh = await browser.newContext()
+  const fresh = await isolatedContext()
   const restorePage = await fresh.newPage()
   await restorePage.goto(BASE)
   await restorePage.waitForSelector('.authoring-welcome')
@@ -102,12 +113,7 @@ try {
   await fresh.close()
 
   // The actual Experience coordinator, not a synthetic call to commit helpers.
-  const rpg = await browser.newContext()
-  await rpg.route('**/*', route => {
-    if (new URL(route.request().url()).origin !== new URL(BASE).origin) return route.abort()
-    if (route.request().url().includes('/api/') && route.request().method() !== 'GET') return route.abort()
-    return route.continue()
-  })
+  const rpg = await isolatedContext()
   const rpgPage = await rpg.newPage()
   const provider = await installDeterministicProviderMock(rpgPage, { passiveInline: false, primaryRequestPrefixes: ['authoring:', 'narrative_'] })
   await rpgPage.goto(`${BASE}/experience`)
@@ -115,7 +121,6 @@ try {
   const turn = await rpgPage.evaluate(async () => {
     const W = await import('/src/services/experience/roleplay/roleplayWorkflow.js')
     const A = await import('/src/services/experience/roleplay/roleplayHistoryAdapter.js')
-    const C = await import('/src/services/experience/roleplay/roleplayCompanion.js')
     const pinia = document.querySelector('#app').__vue_app__.config.globalProperties.$pinia
     const store = pinia._s.get('game')
     const world = pinia._s.get('world')
@@ -126,39 +131,48 @@ try {
     let archived = 0
     A.installRoleplayHistoryPort(A.createRoleplayHistoryPort({ read: async () => ({ ok: true, records: [] }), record: async () => { archived++; return { ok: true } } }))
     const realCommit = store.commitCurrentSessionNow
-    let commitReached = false
+    let firstResolutionRef
     store.commitCurrentSessionNow = () => {
-      if (!commitReached && store.roleplaySession.receipts.length > 0) { commitReached = true; throw Object.assign(new Error('injected-durable-failure'), { code: 'TEST_DURABLE_FAILURE' }) }
+      if (firstResolutionRef === undefined && store.roleplaySession.receipts.length > 0) {
+        firstResolutionRef = store.roleplaySession.receipts[0].resolutionRef
+        throw Object.assign(new Error('injected-durable-failure'), { code: 'TEST_DURABLE_FAILURE' })
+      }
       return realCommit()
     }
     await W.confirmRoleplayAction(store, { rawInput: '检查灯塔的门锁', attribute: 'agility', nextUint32: () => 5 })
-    check(commitReached, 'test did not reach the final durable commit')
+    check(firstResolutionRef, 'test did not reach the final durable commit with resolved dice')
     check(archived === 0, 'uncommitted turn reached archive')
     const pending = store.roleplaySession.pendingByBranch.main
     check(pending?.status === 'resolved' && store.roleplaySession.receipts.length === 0 && store.roleplaySession.archiveOutbox.length === 0, 'failed commit poisoned pending or audit state')
-    const dice = JSON.stringify(pending.resolution)
     store.commitCurrentSessionNow = realCommit
     await W.resumeRoleplayPending(store, { actionId: pending.actionId })
     check(!store.roleplaySession.pendingByBranch.main && store.roleplaySession.receipts.length === 1, 'same-dice retry did not commit')
     check(archived === 1, 'durable retry did not archive exactly once')
     const receipt = store.roleplaySession.receipts[0]
+    check(receipt.actionId === pending.actionId && receipt.resolutionRef === firstResolutionRef, 'retry changed action or dice')
     const original = JSON.stringify(receipt)
     W.commitRoleplayRenarration(store, { binding: { actionId: receipt.receiptId, checkRow: { sessionId: store.currentSessionId } }, turnRecord: { id: 'alternate-narration' } })
     check(JSON.stringify(receipt) === original, 'renarration mutated archived identity')
-    check(JSON.stringify(pending.resolution) === dice, 'retry changed dice')
     store.roleplaySession.actor = { marker: 'branch-A' }
     const snapshot = store.getRuntimeSnapshot({ forSession: false })
     store.roleplaySession.actor = { marker: 'branch-B' }
     const audit = store.roleplaySession.receipts
     store.applyRuntimeSnapshot(snapshot)
     check(store.roleplaySession.actor.marker === 'branch-A' && store.roleplaySession.receipts === audit, 'branch gameplay/audit separation failed')
-    let hiddenRead = false
-    const knowledge = await C.buildCompanionKnowledgeContext({ projection: { public: 'visible' }, queryFactsFn: async () => { hiddenRead = true; return { ok: true, items: [{ object: 'HIDDEN' }] } }, db: {} })
-    check(!hiddenRead && knowledge.facts.length === 0, 'author truth passed as character knowledge')
-    return { durableFailureRollback: true, sameDiceRetry: true, archiveAfterCommit: true, immutableReceipt: true, branchProjection: true, failClosedKnowledge: true }
+    return { durableFailureRollback: true, sameDiceRetry: true, archiveAfterCommit: true, immutableReceipt: true, branchProjection: true }
   })
-  assert.ok(provider.summary().narrativeCount > 0, 'real coordinator did not use mocked provider')
-  console.log('coordinator', JSON.stringify(turn), 'provider', JSON.stringify(provider.summary()))
+  // This projection needs no browser state. Importing its test-only dependency
+  // through Vite during a turn can trigger a cold-cache reload mid-request.
+  let hiddenRead = false
+  const knowledge = await buildCompanionKnowledgeContext({
+    projection: { public: 'visible' },
+    queryFactsFn: async () => { hiddenRead = true; return { ok: true, items: [{ object: 'HIDDEN' }] } },
+    db: {},
+  })
+  assert.ok(!hiddenRead && knowledge.facts.length === 0, 'author truth passed as character knowledge')
+  const requests = provider.summary()
+  assert.deepEqual(requests.narrativePhases.filter(phase => phase !== 'critic'), ['plan', 'prose', 'plan', 'prose'])
+  console.log('coordinator', JSON.stringify({ ...turn, failClosedKnowledge: true }), 'provider', JSON.stringify(requests))
   console.log('abc-integration-smoke: PASS')
 } finally {
   await browser.close()

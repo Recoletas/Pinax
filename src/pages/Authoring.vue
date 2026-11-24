@@ -1,6 +1,5 @@
 <template>
   <div class="writing-page wall wt3-prototype" :class="{ 'is-zen': writingTypography.zen, 'is-assistant-full': assistantWorkspace.expanded.value }" @click="onGlobalClick">
-    <!-- 专注全屏退出按钮：仅 Zen 态可见 -->
     <button
       v-if="writingTypography.zen"
       class="wall__zen-exit"
@@ -8,7 +7,6 @@
       :title="tr(&quot;退出专注全屏（Esc）&quot;)"
       @click="toggleWritingZen"
     >{{ tr('退出全屏') }}</button>
-    <!-- 页面内只保留编辑工具、保存反馈与章节目录；作品切换由全局标签和首页负责。 -->
     <div class="wall__cork" :inert="illustratorBlocking ? '' : undefined">
       <div id="authoring-editor-toolbar-host" class="authoring-editor-toolbar-host"></div>
       <div v-if="saveFeedbackVisible" class="wall__save-chip" :class="`is-${saveStatus}`" :aria-label="tr('保存状态')">
@@ -54,6 +52,7 @@
             </div>
             <button type="button" role="menuitem" data-test="more-reopen-first-run" @click="moreAction(reopenFirstRunGuidance)">{{ tr('继续创作指引') }}</button>
             <button type="button" role="menuitem" @click="moreAction(createNewBook)">{{ tr('新建书稿') }}</button>
+            <button type="button" role="menuitem" :disabled="!selectedBookId" @click="moreAction(() => appSettings.openWorldModel(selectedBookId))">{{ tr('小说世界模型') }}</button>
             <button type="button" role="menuitem" data-test="more-backup-settings" @click="moreAction(openBackupSettings)">{{ tr('备份与恢复') }}</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentChapterManuscript)" :disabled="!selectedChapterId">{{ tr('导出当前章节') }}</button>
             <button type="button" role="menuitem" @click="moreAction(exportCurrentBookManuscript)" :disabled="!selectedBookId">{{ tr('导出整本书') }}</button>
@@ -62,12 +61,11 @@
             <button type="button" role="menuitem" @click="moreAction(openAssetInbox)">{{ tr('素材收件箱') }}</button>
             <button type="button" role="menuitem" @click="moreAction(openMaterialsPage)">{{ tr('素材库') }}</button>
             <button type="button" role="menuitem" :aria-pressed="inlineSuggestionEnabled.toString()" @click="moreAction(toggleInlineSuggestion)">{{ inlineSuggestionEnabled ? tr('自动联想：开') : tr('自动联想：关') }}</button>
-            <button type="button" role="menuitem" @click="moreAction(goToAdventure)">{{ tr('回到冒险') }}</button>
+            <button type="button" role="menuitem" @click="moreAction(() => runDocumentBoundary(goToAdventure))">{{ tr('回到冒险') }}</button>
             <button type="button" role="menuitem" @click="moreAction(goBack)">{{ tr('返回首页') }}</button>
           </div>
         </Teleport>
         <Teleport to="body">
-          <!-- 左栏右键菜单：章节行 / 卷组 -->
           <div
             v-if="shelfContextMenu.show"
             class="shelf-context-menu"
@@ -78,7 +76,7 @@
             @contextmenu.prevent.stop
           >
             <template v-if="shelfContextMenu.kind === 'chapter'">
-              <button type="button" role="menuitem" @click="shelfMenuAction((id) => selectChapter(id))">{{ tr('打开章节') }}</button>
+              <button type="button" role="menuitem" @click="shelfMenuAction(id => runDocumentBoundary(selectChapter, id))">{{ tr('打开章节') }}</button>
               <button type="button" role="menuitem" @click="shelfMenuAction(openChapterInDual)">{{ tr('在双栏打开') }}</button>
               <button type="button" role="menuitem" @click="shelfMenuAction(renameChapterFromShelf)">{{ tr('重命名') }}</button>
               <button type="button" role="menuitem" @click="shelfMenuAction(() => exportCurrentChapterManuscript())">{{ tr('导出本章') }}</button>
@@ -92,7 +90,6 @@
             </template>
           </div>
         </Teleport>
-        <!-- 全局锁定主题2亮色：亮/暗切换隐藏（用户要求） -->
         <button v-if="false" class="wall__tab wall__tab--mode" @click="toggleTheme" :title="isDark ? tr('切换亮色') : tr('切换暗色')" :aria-label="isDark ? tr('切换亮色') : tr('切换暗色')">
           <svg v-if="isDark" width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
             <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.06 10.06l1.06 1.06M2.93 11.07l1.06-1.06M10.06 3.94l1.06-1.06"/>
@@ -126,7 +123,6 @@
       :aria-label="tr(&quot;关闭章节列表&quot;)"
       @click="closeChapterDrawer"
     ></button>
-    <!-- 墙主区 — 248px 书架 + 1fr 中央卷宗 -->
     <main ref="writingMainRef" class="wall__main" :inert="illustratorBlocking ? '' : undefined" :class="{ 'has-inspector': inspectorOpen, 'is-dual-inspector': inspectorOpen && inspectorDualColumn, 'has-sequential-inspector': inspectorOpen && activeInspectorTool === 'rehearsal' }">
       <Teleport :to="directoryHost?.directoryTarget.value || 'body'" :disabled="!directoryHost?.directoryDocked.value || !directoryHost?.directoryTarget.value">
       <aside
@@ -139,7 +135,7 @@
         :aria-hidden="!directoryHost?.directoryDocked.value && chapterShelfSheetMode && !chapterDrawerOpen ? 'true' : undefined"
         :aria-label="tr(&quot;章节书架&quot;)"
       >
-        <div class="wall__shelf-manuscript">
+        <div class="wall__shelf-manuscript" :class="{ 'shows-project-tree': selectedBookId && directoryMode === 'files' }">
           <ProjectDirectory v-if="selectedBookId" v-show="directoryMode === 'files'" :book-id="String(selectedBookId)" :chapters="chapters" :ideas="wt3IdeaShelfDocs" :worldbook="boundWorldbook" :active-chapter-id="String(selectedChapterId || '')" :active-chapter-title="currentChapterTitle" :delete-chapters="deleteDirectoryChapters" :reorder-chapters="reorderDirectoryChapters" :active-idea-id="String(wt3ActiveDocId || '')" :before-open="prepareDirectoryOpen" :create-resource="createDirectoryResource" :refresh-worldbook="refreshDirectoryWorldbook" @manage-worldbook="openBindingSelect" @import-chapter="manuscriptImport.openChapters" />
           <div v-show="directoryMode === 'chapters' || !selectedBookId">
           <div class="authoring-chapter-search">
@@ -151,7 +147,6 @@
             <button class="control-secondary" type="button" @click="createNewBook">{{ tr('新建书') }}</button>
           </div>
           <div v-if="selectedBookId" class="authoring-chapter-tree">
-            <!-- 文本工作台 v3 正式文档树：构思/正文共用同一稿面。 -->
             <AuthoringIdeaShelf
               :docs="wt3IdeaShelfDocs"
               :catalog="authoringRunReferenceCatalog"
@@ -163,7 +158,7 @@
               :legacy-note-count="wt3LegacyNoteCount"
               @create="wt3QuickCapture"
               @migrate="wt3MigrateLegacyNotes"
-              @open="openExplorationDoc"
+              @open="id => runDocumentBoundary(openExplorationDoc, id)"
               @open-dual="openExplorationInDual"
               @extract-preview="openNotesExtraction"
               @add="addAuthoringRunReference"
@@ -199,12 +194,12 @@
               role="button"
               tabindex="0"
               :aria-pressed="selectedChapterId === entry.chapter.id"
-              @keydown.enter.prevent="selectChapter(entry.chapter.id)"
-              @keydown.space.prevent="selectChapter(entry.chapter.id)"
+              @keydown.enter.prevent="runDocumentBoundary(selectChapter, entry.chapter.id)"
+              @keydown.space.prevent="runDocumentBoundary(selectChapter, entry.chapter.id)"
               :aria-label="tr('{value0} · 拖拽排序', { value0: chapterRowLabel(entry.index, entry.chapter.title) })"
               :aria-grabbed="dragIndex === entry.index ? 'true' : 'false'"
               :aria-dropeffect="dropTargetIndex === entry.index ? 'move' : 'none'"
-              @click="selectChapter(entry.chapter.id)"
+              @click="runDocumentBoundary(selectChapter, entry.chapter.id)"
               @contextmenu.prevent="openShelfContextMenu($event, 'chapter', entry)"
               @dragstart="onChapterDragStart($event, entry.index, selectedBookId)"
               @dragover.prevent="onChapterDragOver($event, entry.index, selectedBookId)"
@@ -221,7 +216,6 @@
             <p v-if="!visibleChapterEntries.length" class="authoring-chapter-empty">{{ tr('没有匹配的章节') }}</p>
           </div>
           </div>
-          <!-- 书与世界书显式绑定（Task 2）：一行文字 + 文字动作，不加卡片/徽标。 -->
           <div v-if="selectedBookId && (directoryMode !== 'files' || bookWorldbookStatus.status !== 'bound' || bindingSelectOpen)" class="wall__binding-line" data-test="book-worldbook-binding">
             <template v-if="bindingSelectOpen">
               <select
@@ -251,7 +245,6 @@
             </template>
           </div>
         </div>
-        <!-- 本章现场（Task 1.3 挂载现场条）；两行 grid 的 auto 行，不随稿件滚动。 -->
         <div class="wall__shelf-scene" :aria-label="tr(&quot;本章现场&quot;)">
           <AuthoringSceneRail
             :projection="sceneProjection"
@@ -266,8 +259,7 @@
       </aside>
       </Teleport>
 
-      <!-- 中：卷宗稿纸（中央主线） -->
-      <section class="wall__dossier" :data-active-pane="activeWritingPane === 'main' ? 'true' : 'false'" :aria-label="tr(&quot;章节正文卷宗&quot;)">
+      <section class="wall__dossier" :style="{ '--manuscript-measure': `calc(${writingTypography.fontSize}px * 40)` }" :data-active-pane="activeWritingPane === 'main' ? 'true' : 'false'" :aria-label="tr(&quot;章节正文卷宗&quot;)">
         <template v-if="!selectedBookId">
           <div class="wall__dossier-empty">
             <div class="wall__empty-copy">
@@ -299,8 +291,8 @@
             <Teleport to="#authoring-editor-toolbar-host">
             <div class="editor-toolbar">
               <div class="toolbar-group">
-                <button class="control-quiet tool-btn" type="button" :title="tr(&quot;撤销当前活动窗（Ctrl/Cmd+Z）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit">{{ tr('撤销') }}</button>
-                <button class="control-quiet tool-btn" type="button" :title="tr(&quot;重做当前活动窗（Ctrl/Cmd+Shift+Z）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit">{{ tr('重做') }}</button>
+                <button class="control-quiet tool-btn tool-btn--icon" type="button" :aria-label="tr('撤销')" :title="tr(&quot;撤销当前活动窗（Ctrl/Cmd+Z）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.undo" @click="undoNotebookEdit"><WorkbenchIcon name="undo" :size="16" /></button>
+                <button class="control-quiet tool-btn tool-btn--icon" type="button" :aria-label="tr('重做')" :title="tr(&quot;重做当前活动窗（Ctrl/Cmd+Shift+Z）&quot;)" :disabled="activeWritingMutationLocked || !activeNotebookCommandAvailability.redo" @click="redoNotebookEdit"><WorkbenchIcon name="redo" :size="16" /></button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
@@ -328,6 +320,9 @@
                     <button class="fp-btn fp-btn--text" type="button" :aria-pressed="writingTypography.firstLineIndent.toString()" @click="writingTypography.toggleFirstLineIndent()">
                       {{ writingTypography.firstLineIndent ? tr('缩进两字') : tr('不缩进') }}
                     </button>
+                  </div>
+                  <div class="fp-row"><span class="fp-label">{{ tr('段落') }}</span>
+                    <button class="fp-btn fp-btn--text" type="button" data-test="normalize-paragraphs" :disabled="activeWritingMutationLocked" :title="tr(&quot;把每行一段的导入文本拆成独立段落，去掉行首全角空格和重复的章节标题；可撤销&quot;)" @click="normalizeCurrentParagraphs">{{ tr('整理段落') }}</button>
                   </div>
                   <div class="fp-row"><span class="fp-label">{{ tr('段距') }}</span>
                     <select class="fp-select" :value="writingTypography.paragraphGap" @change="writingTypography.setParagraphGap($event.target.value)">
@@ -360,7 +355,7 @@
                   data-test="authoring-illustrator-trigger"
                   @pointerdown="freezeIllustratorSource"
                   @click.stop="openIllustrator"
-                ><WorkbenchIcon name="image" :size="15" /><span>{{ tr('生图') }}</span></button>
+                >{{ tr('生图') }}</button>
               </div>
               <div class="toolbar-sep"></div>
               <div class="toolbar-group">
@@ -619,7 +614,7 @@
               />
             </Teleport>
             <div v-if="blockWorkflow.savedExploration.value?.projectId === selectedBookId" class="writing-inspector__pending-proposals" role="status">
-              <button type="button" @click="openExplorationDoc(blockWorkflow.savedExploration.value.id)">{{ tr('已保存为构思') }} · {{ blockWorkflow.savedExploration.value.title }} →</button>
+              <button type="button" @click="runDocumentBoundary(openExplorationDoc, blockWorkflow.savedExploration.value.id)">{{ tr('已保存为构思') }} · {{ blockWorkflow.savedExploration.value.title }} →</button>
             </div>
             <div v-if="blockWorkflow.recoverableDraft.value" class="writing-inspector__pending-proposals" role="status">
               <button type="button" @click="selectInspectorTool('rehearsal'); blockWorkflow.open()">{{ tr('有一份未写入正文的推演草稿') }} · {{ tr('查看') }} →</button>
@@ -740,15 +735,12 @@
                 <span class="dossier-footer-stat dossier-footer-stat--save" :class="`is-${saveStatus}`">{{ tr(stampStateText) }}</span>
                 <span class="dossier-footer-stat-divider">·</span>
               </template>
-              <span class="dossier-footer-stat">{{ tr(writingTextMetrics(getEditorText(), currentBook?.manuscriptLanguage).unit === 'words' ? '词数：{count}' : '字/词：{count}', { count: wordCount.toLocaleString(uiLocale) }) }}</span>
-              <span class="dossier-footer-stat-divider">·</span>
-              <span class="dossier-footer-stat">{{ tr('{value} 字符', { value: charCount.toLocaleString() }) }}</span>
+              <span class="dossier-footer-stat" :title="tr('{value} 字符', { value: charCount.toLocaleString() })">{{ tr(writingTextMetrics(getEditorText(), currentBook?.manuscriptLanguage).unit === 'words' ? '词数：{count}' : '{count} 字', { count: wordCount.toLocaleString(uiLocale) }) }}</span>
               <span class="dossier-footer-stat-divider">·</span>
               <span class="dossier-footer-stat">{{ tr('修订 {revisionLabel}', { revisionLabel: revisionLabel }) }}</span>
             </div>
           </div>
 
-          <!-- 右键菜单 -->
           <div v-if="contextMenu.show" ref="contextMenuRef" class="context-menu" role="menu" :aria-label="tr(&quot;正文操作&quot;)" tabindex="-1" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px', maxHeight: contextMenu.maxHeight + 'px' }" @pointerdown.prevent @click.stop>
             <button class="ctx-item" role="menuitem" @click="ctxAction('undo')" :disabled="historyInteractionLocked || !contextMenu.availability.undo">{{ tr('撤销') }}</button>
             <button class="ctx-item" role="menuitem" @click="ctxAction('redo')" :disabled="historyInteractionLocked || !contextMenu.availability.redo">{{ tr('重做') }}</button>
@@ -790,6 +782,7 @@
         :main-document="writingDocument"
         :main-markdown="markdownContent"
         :active="activeWritingPane === 'dual'"
+        :read-chapter="readDualProjectChapter"
         :save-chapter="saveDualChapter"
         :save-exploration="saveDualExploration"
         :protect-destructive-edit="protectDualDestructiveEdit"
@@ -839,11 +832,11 @@
       <AuthoringWorkspaceToolRail
         :workspace-hidden="assistantWorkspace.expanded.value"
           :pending="assistantPendingTools"
-        :active-tool="activeInspectorTool"
+        :active-tool="inspectorOpen ? activeInspectorTool : ''"
         :dual="inspectorDualColumn"
         :collaboration-visible="authoringRehearsalActive"
         @before-select="beforeInspectorToolSelect"
-        @select="tool => tool === 'history' ? appSettings.open('memory') : selectInspectorTool(tool)"
+        @select="selectRailTool"
       />
 
       <aside
@@ -890,7 +883,7 @@
             :curation="sceneCurationDraft"
             :worldbook-status="bookWorldbookStatus.status"
             :character-candidates="curationCharacterCandidates"
-            :location-candidates="curationLocationCandidates"
+            :location-candidates="curationLocationCandidates" :calendars="curationCalendars"
             :recognition-suggestions="sceneRecognitionSuggestions"
             :recognition-pending="sceneRecognitionPending"
             :missing-character-ids="curationMissingCharacterIds"
@@ -937,7 +930,7 @@
           <!-- UX-03：桌面由左栏索引负责定位；右侧只放紧凑概览与主动作。
                窄屏左栏收入抽屉，当前地点文字可直达详情，但不恢复整套交互索引。 -->
           <dl class="writing-scene-overview__summary">
-            <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneProjection.time?.label || tr('未设置') }}</dd></div>
+            <div><dt>{{ tr('时间') }}</dt><dd>{{ sceneTimeLabel(sceneProjection.time, tr('故事序号')) || tr('未设置') }}</dd></div>
             <div>
               <dt>{{ tr('地点') }}</dt>
               <dd>
@@ -1020,7 +1013,7 @@
             :project-id="selectedBookId" :project-title="currentBook?.title || ''" :document-title="wt3ActiveDoc?.title || currentChapterTitle"
             :expanded="assistantWorkspace.expanded.value" :empty-book="assistantWorkspace.emptyBook.value" :notice="authoringMemoryNotice"
             @expand="assistantWorkspace.enter" @collapse="assistantWorkspace.leave" @open-evidence="assistantWorkspace.locateEvidence"
-            @select-surface="assistantWorkspace.openSurface" @select-book="selectBook" @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
+            @select-surface="assistantWorkspace.openSurface" @select-book="id => runDocumentBoundary(selectBook, id)" @open-settings="assistantWorkspace.openSettings" @open-sources="assistantWorkspace.openSources" @review-notice="memoryReviewOpen = true" @open-illustrator="assistantWorkspace.openIllustrator" />
           <AuthoringMemoryReview :open="memoryReviewOpen" :candidates="authoringMemoryCandidates" :can-jump-source="canJumpToMemorySource"
             @confirm="confirmAuthoringMemoryCandidate" @reject="rejectAuthoringMemoryCandidate" @pin="pinAuthoringMemoryCandidate"
             @demote="demoteAuthoringMemoryCandidate" @supersede="supersedeAuthoringMemoryCandidate" @merge="mergeAuthoringMemoryCandidate"
@@ -1068,8 +1061,8 @@
             @move="moveChapterOutlineItem"
             @insert="insertChapterOutlineItem"
             @filter="wt3OutlineFilter = $event"
-            @open-project-chapter="selectChapter"
-            @open-project-exploration="openExplorationDoc"
+            @open-project-chapter="id => runDocumentBoundary(selectChapter, id)"
+            @open-project-exploration="id => runDocumentBoundary(openExplorationDoc, id)"
             @open-dual="openOutlineInDual"
             @history="selectInspectorTool('history')"
             @close="closeActiveWritingInspector"
@@ -1255,7 +1248,7 @@
             @update="updateAuthoringCharacter"
             @remove="removeAuthoringCharacter"
             @generate="openIllustratorForCharacter"
-            @open-chapter="selectChapter"
+            @open-chapter="id => runDocumentBoundary(selectChapter, id)"
             @open-full="entryId => openProjectSettingsSurface('settings', { entryId })"
             @close="closeActiveWritingInspector"
           />
@@ -1467,7 +1460,6 @@
       </div>
     </Transition>
 
-    <!-- 新建书籍弹窗 -->
     <Transition name="modal-fade">
       <div v-if="showNewBookModal" class="modal-overlay" @click.self="showNewBookModal = false">
         <Transition name="modal-scale" appear>
@@ -1710,7 +1702,7 @@ import {
   resolveSelectionActionPosition,
   resolveWritingAnnotation
 } from '../services/writing/writingAnnotations.js'
-import { getChapterMarkdown, getWritingDocumentMarkdown, getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
+import { createWritingDocument, getChapterMarkdown, getWritingDocumentMarkdown, getWritingMarkdownPosition } from '../services/writing/writingDocumentSchema.js'
 import {
   buildBookManuscriptExport,
   buildChapterManuscriptExport
@@ -1757,7 +1749,7 @@ import {
   normalizeSceneAnchors,
   resolveActiveSceneAnchor,
   reconcileSceneAnchorsForUnitTransition,
-  fingerprintSceneAnchors
+  fingerprintSceneAnchors, sceneTimeLabel
 } from '../services/agents/authoring/authoringSceneAnchors.js'
 import { normalizeAuthoringFailure } from '../services/agents/authoring/authoringExecutionResult.js'
 import {
@@ -1825,7 +1817,6 @@ const selectedBookId = ref('')
 const chapters = ref([])
 const selectedChapterId = ref(null)
 const currentChapterTitle = ref('')
-// —— 书与世界书显式绑定（worldbook scene closure Task 2）——
 // 绑定保存在 book.worldbookId；生成链只读 boundWorldbook，绝不回退到全局 active 世界书。
 // 绑定世界书：时序安全同步（复验修复 2）——切书瞬间清空旧绑定，
 // 加载窗口（syncing）内暂停下一拍提交，慢返回不覆盖更新的选择。
@@ -1869,11 +1860,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('storage', handleExternalWorldbookStorageChange)
   document.removeEventListener('visibilitychange', handleAuthoringVisibilityRefresh)
 })
-// 项目级场景锚点（Task 4）：随章节数据持久化，绑定 unitId + 当前书的世界书。
 const sceneAnchors = ref([])
 // Declared before sceneProjection because that computed is watched during setup.
 const authoringObservations = ref([])
-// 最近一次锚点写入回执（撤销安全校验用）。
 const lastSceneAnchorUndoReceipt = shallowRef(null)
 const editorContent = ref('')
 const showNewBookModal = ref(false)
@@ -1887,6 +1876,18 @@ const newBookDesc = ref('')
 const newBookInput = ref(null)
 const editorRef = ref(null)
 const notebookEditorRef = ref(null)
+
+// 排版面板“整理段落”：作者显式触发，单次可撤销事务；不自动改写任何章节。
+function normalizeCurrentParagraphs() {
+  const result = notebookEditorRef.value?.normalizeParagraphs?.({ title: currentChapterTitle.value })
+  if (!result?.ok) { authoringTask.notify(tr('当前文稿暂不能整理段落')); return }
+  if (!result.changed) { authoringTask.notify(tr('段落已经是整理好的格式')); return }
+  const parts = []
+  if (result.splitParagraphs) parts.push(tr('拆分 {count} 处多行段落', { count: result.splitParagraphs }))
+  if (result.strippedIndents) parts.push(tr('去掉 {count} 处行首缩进', { count: result.strippedIndents }))
+  if (result.removedTitle) parts.push(tr('移除重复标题'))
+  authoringTask.notify(tr('已整理段落：{detail}；可撤销', { detail: parts.join('、') }))
+}
 const blockComposerRef = ref(null)
 const writingMainRef = ref(null)
 const writingInspectorRef = ref(null)
@@ -1898,8 +1899,6 @@ const authoringSettingCaretContext = computed(() => buildAuthoringCaretContext(w
 const writingWorldbookMentions = computed(() => buildWritingWorldbookMentions(writingDocument.value, boundWorldbook.value))
 const editorMode = ref('wysiwyg')
 const markdownContent = ref('')
-// —— 文本工作台 v3 正式文档树 ——
-// Phase 0 的 URL 原型门控已退役；构思/速记必须在正常 /authoring 可见。
 const wt3ExplorationDocs = ref([])
 const wt3OutlineNodes = ref([])
 const wt3LegacyNoteCount = computed(() => {
@@ -2005,7 +2004,6 @@ const wt3IdeaShelfDocs = computed(() => wt3ExplorationDocs.value.map((doc) => {
 }))
 const chapterRowLabel = (index, title) => writingChapterRowLabel(index, title, uiLocale.value)
 const chapterRowParts = (index, title) => writingChapterRowParts(index, title, uiLocale.value)
-// 整个章标题都是可编辑文本；旧的空章名以目录序号提供初始显示。
 const editableChapterTitle = computed({
   get() {
     if (currentChapterTitle.value) return currentChapterTitle.value
@@ -2072,7 +2070,6 @@ function wt3PersistActiveDoc() {
   }
   return result
 }
-// 任何离开探索文档的路径（切章/切书/关闭）统一走这里；正文路径不受影响。
 function wt3PersistBeforeLeaving() {
   if (pendingGhostAdoption.value) {
     authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前文档'))
@@ -2115,7 +2112,6 @@ function openExplorationDoc(docId) {
   const bookId = selectedBookId.value
   const doc = getExplorationDocument(bookId, docId)
   if (!doc) return
-  // 切换构思时只保存当前构思，不清除“返回正文”的章节锚点。
   const outgoingChapterBoundary = !wt3ActiveDoc.value
     ? buildCurrentChapterObserverBoundary()
     : null
@@ -2135,17 +2131,14 @@ function openExplorationDoc(docId) {
   wt3RefreshDocs(bookId)
   wt3ActiveDocId.value = docId
   wt3PreviousChapterId.value = previousChapterId
-  // 构思文档是独立作用域：上一章/上一篇的候选不得进入新文档稿面。
   authoringTask.dismissAuxiliary()
   wt3Handle.value = createDocumentHandle({
     bookId, role: 'exploration', documentId: doc.id, title: doc.title, revision: doc.revision
   })
-  // 恢复草稿比存储内容新时优先恢复未保存稿。
   const key = authoringDocumentKey({ role: 'exploration', bookId, documentId: doc.id })
   const draft = authoringHistory.readRecovery(key)
   markdownContent.value = draft?.markdown || String(doc.content || '')
   wt3Annotations.value = Array.isArray(doc.annotations) ? doc.annotations : []
-  // 记住离开正文时的稿面滚动位置：返回正文后恢复，版心不跳（V2 Gate）。
   if (!wt3PreviousChapterScrollTop) {
     wt3PreviousChapterScrollTop = document.querySelector('.wall__dossier-scroll')?.scrollTop || 0
   }
@@ -2159,10 +2152,8 @@ function closeExplorationDoc() {
   }
   writingAgentHost.cancelForScopeChange()
   if (blockComposer.open) abandonBlockComposer({ restoreSelection: false })
-  // wt3PersistBeforeLeaving 会清空章节锚点，先取回用于滚动恢复判断
   const anchorChapterId = wt3PreviousChapterId.value
   const ok = wt3PersistBeforeLeaving()?.ok === true
-  // 仅在回到同一章锚点时恢复离开前的稿面滚动；切章由章节自身锚点接管。
   if (ok && wt3PreviousChapterScrollTop && anchorChapterId === selectedChapterId.value) {
     const target = wt3PreviousChapterScrollTop
     wt3PreviousChapterScrollTop = 0
@@ -2175,7 +2166,6 @@ function closeExplorationDoc() {
   }
   return ok
 }
-// 快速落笔：新建探索文档并直接进入编辑。
 function wt3QuickCapture() {
   if (!selectedBookId.value) return
   const now = new Date()
@@ -2297,7 +2287,6 @@ const notebookEditorStyle = computed(() => ({
   '--notebook-font-weight': '400',
   '--notebook-font-style': 'normal',
   '--notebook-text-decoration': 'none',
-  // Phase 2：小说标准排版变量（构思/正文共用，原型硬编码迁入变量 owner）。
   '--notebook-first-line-indent': writingTypography.firstLineIndent ? '2em' : '0',
   '--notebook-paragraph-gap': String(writingTypography.paragraphGap) + 'em'
 }))
@@ -2306,6 +2295,7 @@ const notebookCommandMenuOpen = ref(false)
 const writingCompositionActive = ref(false)
 const chapterAnnotations = ref([])
 const authoringHistory = useAuthoringHistoryWorkflow({
+  bookId: () => selectedBookId.value,
   chapterId: () => selectedChapterId.value,
   chapterTitle: () => currentChapterTitle.value,
   document: () => writingDocument.value,
@@ -2319,7 +2309,7 @@ const authoringHistory = useAuthoringHistoryWorkflow({
   confirmRestore: () => typeof window === 'undefined' || window.confirm(tr('当前章节在此快照之后已有修改。恢复会先保存一个“恢复前”检查点，继续吗？')),
   findChapter: (chapterId) => chapters.value.find((item) => item.id === chapterId),
   persistChapters: () => saveChapters(),
-  selectChapter: (chapterId) => selectChapter(chapterId),
+  selectChapter: (chapterId) => selectChapter(chapterId, { reload: true }),
   reloadDual: (payload) => dualPaneRef.value?.reloadSearchSource?.(payload),
   markSaved: () => { saveStatus.value = 'saved' },
   unitByNode: (nodeId) => getWritingUnitByNodeId(nodeId),
@@ -3286,7 +3276,6 @@ function moreAction(action) {
 function toggleInlineSuggestion() {
   setWritingAgentEnabled(!inlineSuggestionEnabled.value)
 }
-// ── 左栏右键菜单：章节行 / 卷组。打包桌面端后没有浏览器原生右键，
 // 一律 prevent 默认并使用自研菜单；动作只接真实存在的能力。──
 const shelfContextMenu = ref({ show: false, x: 0, y: 0, kind: '', chapterId: '', index: -1, title: '' })
 function openShelfContextMenu(event, kind, entry = null) {
@@ -3554,14 +3543,14 @@ const knowledgeAssistant = useAuthoringKnowledgeAssistant({
     getChapter: () => wt3ActiveDoc.value ? null : chapters.value.find(c => c.id === selectedChapterId.value), getWorldbook: () => boundWorldbook.value,
     getLiveDocument: () => writingDocument.value, getSelection: () => notebookSelection.value,
     getLiveText: () => wt3ActiveDoc.value ? '' : markdownContent.value, getNotes: () => wt3ExplorationDocs.value.map(doc => doc.id === wt3ActiveDocId.value ? { ...doc, content: markdownContent.value } : doc), getOutline: () => wt3OutlineNodes.value,
-    persistCurrent: () => !pendingGhostAdoption.value && !blockPreview.value && !wt3ActiveDoc.value && (selectedChapterId.value ? saveCurrentChapter() : saveBooks()),
+    persistCurrent: () => !pendingGhostAdoption.value && !blockPreview.value && dualPaneRef.value?.prepareClose?.() !== false && persistPendingDocument(saveBooks),
     protectChanges: (snapshots, id) => snapshots.every(snapshot => authoringHistory.recordProtection({ ...snapshot, reason: 'before-rewrite', operation: 'assistant-edit', transactionId: id }).ok),
-    protectCurrent: (id) => authoringHistory.recordProtection({ chapterId: selectedChapterId.value, chapterTitle: currentChapterTitle.value, reason: 'before-adoption', document: writingDocument.value, markdown: markdownContent.value, annotations: chapterAnnotations.value, operation: 'append-storyagent', transactionId: id }),
+    protectCurrent: (id, chapter) => authoringHistory.recordProtection({ chapterId: chapter.id, chapterTitle: chapter.title, reason: 'before-adoption', document: chapter.editorDocument || createWritingDocument(chapter.content), markdown: getChapterMarkdown(chapter), annotations: chapter.annotations || [], operation: 'append-storyagent', transactionId: id }),
     observeAdoption: ({ text, unitId, bookId, chapterId }) => commitDirectAuthoringObservation({ text, unitId, memoryProjectId: bookId, documentId: chapterId, chapterId, unitRevision: 0, sourceRefs: [`unit:${chapterId}:${unitId}`], sourceDocumentRevision: currentDocumentRevision() }),
-    readBooks: () => books.value, saveBooks: saveWritingBooksDurable,
+    readBooks: loadWritingBooks, saveBooks: saveWritingBooksDurable,
     publishRepository: publishWritingBooks,
     publishWorldbook: (next) => { if (!next || String(currentBook.value?.worldbookId) === String(next.id)) { worldStore.publishPersistedWorldbook(next); boundWorldbook.value = next } },
-    publishBooks: (next, chapterId) => { books.value = next; chapters.value = next.find(b => String(b.id) === String(selectedBookId.value)).chapters;
+    publishBooks: (next, chapterId) => { acceptPageBooks(next); chapters.value = next.find(b => String(b.id) === String(selectedBookId.value)).chapters; if (wt3ActiveDoc.value) return
       const chapter = chapters.value.find(c => c.id === chapterId); if (!chapter) return; if (!selectedChapterId.value) selectedChapterId.value = chapterId; currentChapterTitle.value = chapter.title || ''; markdownContent.value = loadChapterDocument(chapter, ''); editorContent.value = markdownToHtml(markdownContent.value); fenceNotebookHistory() }
   }),
   target: knowledgeAssistantTarget,
@@ -3872,9 +3861,9 @@ function resolveSceneDetailModel(detail) {
     return {
       kind: 'time',
       id: detail.id,
-      name: projection.time.label,
+      name: sceneTimeLabel(projection.time, tr('故事序号')),
       sections: [
-        { label: '当前时间锚点', value: projection.time.label },
+        { label: '当前时间锚点', value: sceneTimeLabel(projection.time, tr('故事序号')) },
         { label: '与上一节拍的推进量', value: '' },
         { label: '时间来源', value: '写作时间设定' }
       ]
@@ -4001,7 +3990,7 @@ watch([inspectorDetailState, sceneProjection], () => {
 const {
   prepareSceneCurationDraft,
   curationCharacterCandidates,
-  curationLocationCandidates,
+  curationLocationCandidates, curationCalendars,
   curationMissingCharacterIds,
   curationMissingLocationId,
   discardSceneCurationDraft,
@@ -5998,7 +5987,7 @@ function protectInterventionUmbrella(receipt, book) {
   return true
 }
 function reloadInterventionBookSurfaces(nextBooks) {
-  books.value = nextBooks
+  acceptPageBooks(nextBooks)
   const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
   chapters.value = nextBook?.chapters || []
   if (!wt3ActiveDoc.value) {
@@ -7081,7 +7070,7 @@ const moreToolsTriggerRef = ref(null)
 const chapterShelfRef = ref(null)
 let chapterShelfViewportCleanup = null
 const {
-  activeDocumentSaveScopeKey,
+  activeDocumentSaveScopeKey, runDocumentBoundary, persistPendingDocument,
   cancelContentSave,
   cancelRecoveryDraftSchedule,
   cancelTitleSave,
@@ -7317,9 +7306,7 @@ function projectLinkedLegacySession() {
   }
   books.value = result.books
   saveBooks()
-  if (selectedChapterId.value === chapterId) {
-    selectChapter(chapterId)
-  }
+  if (selectedChapterId.value === chapterId) selectChapter(chapterId, { reload: true })
 }
 function goBack() {
   if (pendingGhostAdoption.value) {
@@ -8198,7 +8185,7 @@ const bookWorldbookStatus = computed(() => resolveBookWorldbookStatus({
   worldbooks: worldStore.worldbooksIndex
 }))
 const {
-  loadBooks,
+  loadBooks, acceptPageBooks, refreshChapterForSelection,
   saveBooks,
   activateBook,
   openBook,
@@ -8217,13 +8204,14 @@ const {
   blockPreview,
   activeExplorationDocument: wt3ActiveDoc,
   persistExplorationBeforeLeaving: wt3PersistBeforeLeaving,
+  persistDualBeforeBookChange: () => dualPaneRef.value?.prepareClose?.(),
   buildOutgoingBoundary: () => buildChapterBoundaryPayload({
     previousChapterId: selectedChapterId.value,
     previousProjectId: selectedBookId.value,
     text: currentChapterDocumentText(),
     revision: currentDocumentRevision()
   }),
-  saveCurrentChapter: () => saveCurrentChapter(),
+  saveCurrentChapter: () => saveStatus.value === 'saved' || saveCurrentChapter(),
   dispatchChapterBoundary,
   setAuthoringProjectId: (bookId) => gameStore.setAuthoringProjectId(bookId),
   synchronizeWorldbook: syncBookWorldbook,
@@ -8274,7 +8262,7 @@ function quoteSelectionToAssistant() {
   assistantWorkspace.enter()
   authoringTask.notify(tr('已把选段引用到助手'))
 }
-function selectChapter(chapterId) {
+function selectChapter(chapterId, { reload = false } = {}) {
   if (pendingGhostAdoption.value) {
     authoringTask.notify(tr('推演正文尚未保存，请先重试保存或留在当前章节'))
     return false
@@ -8283,25 +8271,21 @@ function selectChapter(chapterId) {
     authoringTask.notify(tr('推演草稿尚未处理，请先采用或丢弃'))
     return false
   }
-  // Phase 1：离开探索文档先持久化（含批注），再进入章节管线。
-  if (!chapterCore.readChapter(selectedBookId.value, chapterId).ok) return false
-  const chapter = chapters.value.find((item) => item.id === chapterId)
-  if (!chapter) return false
+  const afterBookActivation = consumeActivationBoundary()
+  if (!reload && !afterBookActivation && !wt3ActiveDoc.value && selectedChapterId.value === chapterId) {
+    closeChapterDrawer()
+    return true
+  }
+  const dual = dualPaneRef.value?.getActiveSource?.()
+  if (!afterBookActivation && dual?.kind === 'chapter' && String(dual.id) === String(chapterId)
+    && dualPaneRef.value.prepareClose() === false) return false
+  const chapter = refreshChapterForSelection(selectedBookId.value, chapterId)
+  if (!chapter || !chapterCore.readChapter(selectedBookId.value, chapterId).ok) return false
   if (wt3ActiveDoc.value && !wt3PersistBeforeLeaving()?.ok) return false
-  writingAgentHost.cancelForScopeChange()
   if (blockComposer.open) closeBlockComposer()
-  // 复验修复 1：activateBook 已按旧书 ID 记过换书 boundary 并保存——
-  // 这里若再记一次会把旧章节派生到新书 ID（selectedBookId 已切换）。
-  if (!consumeActivationBoundary() && selectedChapterId.value && selectedChapterId.value !== chapterId) {
-    // 章节边界：对上一章做一次去重后的有界派生，不重扫整个项目。
-    const outgoingBoundary = {
-      scopeKey: `chapter:${selectedChapterId.value}`,
-      text: currentChapterDocumentText(),
-      sourceRefs: [`chapter:${selectedChapterId.value}`],
-      revision: currentDocumentRevision(),
-      memoryProjectId: selectedBookId.value || ''
-    }
-    if (!saveCurrentChapter()) {
+  if (!afterBookActivation && selectedChapterId.value && selectedChapterId.value !== chapterId) {
+    const outgoingBoundary = buildCurrentChapterObserverBoundary()
+    if (saveStatus.value !== 'saved' && !saveCurrentChapter()) {
       authoringTask.notify(tr('当前章节保存失败，未切换章节'))
       return false
     }
@@ -8515,6 +8499,11 @@ function saveChapters() {
   }
   return false
 }
+function readDualProjectChapter(chapterId) {
+  if (String(chapterId) === String(selectedChapterId.value)) return chapters.value.find(chapter => String(chapter.id) === String(chapterId))
+  return refreshChapterForSelection(selectedBookId.value, chapterId)
+}
+
 function saveDualChapter({ chapterId = '', title = '', markdown = '', document = null, wordCount: nextWordCount = 0, automaticHistory = true } = {}) {
   const chapter = chapters.value.find((item) => String(item?.id) === String(chapterId))
   if (!chapter || !document) return false
@@ -8860,6 +8849,7 @@ function saveCurrentChapter({ preservePageOutline = false, automaticHistory = tr
     Object.assign(chapter, chapterBeforeSave)
     if (book) book.updatedAt = previousBookUpdatedAt
     saveStatus.value = 'error'
+    writeCurrentWritingRecoveryDraft()
     return false
   }
   if (saved) rememberPendingObserverNodes(
@@ -10574,6 +10564,14 @@ function commitRewriteCandidate(candidate, target) {
 function freezeReviewSource() {
   freezeReviewWorkflow(captureActiveReviewSource(), captureCurrentWritingSurface())
 }
+function selectRailTool(tool, fromReference = false) {
+  if (tool === 'history') return appSettings.open('memory')
+  if (!fromReference && tool !== 'dual' && inspectorOpen.value && activeInspectorTool.value === tool) {
+    return closeWritingInspector()
+  }
+  if (fromReference && inspectorOpen.value && activeInspectorTool.value === tool) return
+  selectInspectorTool(tool)
+}
 function beforeInspectorToolSelect(tool) {
   if (tool === 'ai') freezeReviewSource()
   freezeWritingSurfaceBeforeToolSelect(tool)
@@ -10684,7 +10682,7 @@ function afterSearchReplace({ plan, applied, latestBook, nextBooks }) {
       unitRevision: Number(afterChapter.editorDocument.content.find((unit) => unit?.attrs?.unitId === node.unitId)?.attrs?.unitRevision || 0)
     })))
   }
-  books.value = nextBooks
+  acceptPageBooks(nextBooks)
   const nextBook = books.value.find((book) => String(book.id) === String(selectedBookId.value))
   chapters.value = nextBook?.chapters || []
   const editorHistory = applyAuthoringSearchEditorTransaction({ plan, activePane: activeWritingPane.value, mainChapterId: selectedChapterId.value, mainEditor: wt3ActiveDoc.value ? null : notebookEditorRef.value, dualPane: dualPaneRef.value })
@@ -10889,8 +10887,6 @@ function onGlobalClick() {
   hasSelection.value = false
 }
 </script>
-
-
 
 <style scoped src="./Writing.scoped.css"></style>
 <style src="./Writing.global.css"></style>

@@ -1,6 +1,11 @@
+import { Schema } from '@tiptap/pm/model'
+import { EditorState } from '@tiptap/pm/state'
+import { normalizeParagraphsTransaction } from './writingParagraphNormalize.js'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createChapterService, CORE_ERROR_CODES } from '@pinax/core'
+import { useAuthoringBookActivation } from '../../composables/useAuthoringBookActivation.js'
+import { loadWritingBooks, saveWritingBooksDurable } from './writingBooksRepository.js'
 import { useChapterCore } from '../../composables/useChapterCore.js'
 import { createBrowserChapterStore } from './chapterCoreStore.js'
 
@@ -28,8 +33,47 @@ function createBookStore() {
   }
 }
 
+function verifyImportedParagraphNormalization() {
+  const schema = new Schema({
+    nodes: {
+      doc: { content: 'writingUnit+' },
+      writingUnit: { content: 'block*', attrs: { unitId: { default: null }, unitRevision: { default: 0 } } },
+      paragraph: { group: 'block', content: 'inline*', attrs: { nodeId: { default: null }, nodeRevision: { default: 0 } } },
+      image: { group: 'inline', inline: true },
+      text: { group: 'inline' }
+    }
+  })
+
+  const p = (text, nodeId) => schema.nodes.paragraph.create({ nodeId }, text ? schema.text(text) : null)
+  const unit = (...children) => schema.nodes.writingUnit.create({ unitId: 'u1' }, children)
+  const stateOf = (...units) => EditorState.create({ schema, doc: schema.nodes.doc.create(null, units) })
+  const texts = (doc) => { const out = []; doc.descendants((n) => { if (n.type.name === 'paragraph') out.push(n.textContent) }); return out }
+  {
+    const state = stateOf(unit(p('第六十五章　两张不能重合的图\n　　到了午后。\n　　莱昂让工厂送来木料。\n\n　　“好。”', 'n1')))
+    const result = normalizeParagraphsTransaction(state, { title: '第六十五章 两张不能重合的图', idFactory: (() => { let i = 0; return (k) => `${k}-new-${++i}` })() })
+    const doc = result.tr.doc
+    expect(texts(doc)).toEqual(['到了午后。', '莱昂让工厂送来木料。', '“好。”'])
+    expect(result.removedTitle).toBe(true)
+    expect(doc.firstChild.attrs.unitRevision).toBe(1)
+    const ids = []; doc.descendants((n) => { if (n.type.name === 'paragraph') ids.push(n.attrs.nodeId) })
+    expect(new Set(ids).size).toBe(ids.length)
+  }
+
+  {
+    const withImage = schema.nodes.paragraph.create({ nodeId: 'n3' }, [schema.text('　　图\n说'), schema.nodes.image.create()])
+    const state = stateOf(unit(p('正文第一段。', 'n1'), p('', 'n2'), withImage))
+    expect(normalizeParagraphsTransaction(state, { title: '别的标题' }).tr).toBeNull()
+  }
+
+  {
+    const state = stateOf(unit(p('第一章', 'n1')))
+    expect(normalizeParagraphsTransaction(state, { title: '第一章' }).tr).toBeNull()
+  }
+}
+
 describe('browser chapter store adapter', () => {
   it('reads existing chapters with editorDocument revision as the core revision', async () => {
+    verifyImportedParagraphNormalization()
     const fixture = createBookStore()
     const store = createBrowserChapterStore(fixture)
     const service = createChapterService({ store, idFactory: () => 'chapter-new' })
@@ -134,6 +178,32 @@ describe('browser chapter store adapter', () => {
     chapter.content = '不该落盘'
     expect(core.saveChapter({ bookId: 'book-1', chapter, expectedRevision: 1 })).toBe(false)
     expect(saveBooks).toHaveBeenCalledTimes(2)
+
+    const openPage = () => {
+      const books = ref([]), chapters = ref([])
+      const activation = useAuthoringBookActivation({ books })
+      activation.acceptPageBooks(loadWritingBooks())
+      chapters.value = books.value[0].chapters
+      return { books, chapters, core: useChapterCore({ books, chapters, saveBooks: activation.saveBooks }) }
+    }
+    const previous = localStorage.getItem('writing_books')
+    try {
+      saveWritingBooksDurable([{ id: 'b', title: '跨页', chapters: [{ id: 'a', content: '初稿' }, { id: 'b', content: '初稿' }] }])
+      const page1 = openPage(), page2 = openPage()
+      const write = (page, index, text) => {
+        const item = page.chapters.value[index]
+        item.content = text
+        return page.core.saveChapter({ bookId: 'b', chapter: item, expectedRevision: page.core.revisionOf(item) })
+      }
+      expect(write(page1, 0, '甲章新稿')).toBe(true)
+      expect(write(page2, 1, '乙章新稿')).toBe(true)
+      expect(write(page2, 0, '甲章过期稿')).toBe(false)
+      expect(loadWritingBooks()[0].chapters.map(item => item.content)).toEqual(['甲章新稿', '乙章新稿'])
+      expect(page1.core.removeChapter({ bookId: 'b', chapterId: 'b', expectedRevision: 0 })).toBe(false)
+    } finally {
+      if (previous === null) localStorage.removeItem('writing_books')
+      else localStorage.setItem('writing_books', previous)
+    }
   })
 
   it('checks expectedRevision and clears stale editorDocument on content-only saves', async () => {

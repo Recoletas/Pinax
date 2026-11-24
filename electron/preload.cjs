@@ -3,12 +3,15 @@ const { DESKTOP_CHANNELS } = require('./ipc/channels.cjs')
 
 const desktopBridge = Object.freeze({
   platform: 'desktop',
+  os: process.platform,
+  window: Object.freeze({ setAppearance: dark => ipcRenderer.send(DESKTOP_CHANNELS.WINDOW_APPEARANCE, dark === true) }),
   project: Object.freeze({
     chooseDirectory: () => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_CHOOSE_DIRECTORY),
     create: (input) => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_CREATE, input),
     open: (input) => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_OPEN, input),
     getActive: () => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_GET_ACTIVE),
     listText: (input) => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_LIST_TEXT, input),
+    manuscript: input => ipcRenderer.sendSync(DESKTOP_CHANNELS.PROJECT_MANUSCRIPT, input),
     readText: (input) => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_READ_TEXT, input),
     writeText: (input) => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_WRITE_TEXT, input),
     checkIntegrity: () => ipcRenderer.invoke(DESKTOP_CHANNELS.PROJECT_CHECK_INTEGRITY),

@@ -11,12 +11,14 @@
  *           BACKUP_CHECK_OUT_DIR(默认 tmp/workspace-backup-check)
  */
 import { spawn } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import assert from 'node:assert/strict'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { dirname } from 'node:path'
 import { chromium } from 'playwright'
+import JSZip from 'jszip'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const FRONT_PORT = Number(process.env.BACKUP_CHECK_FRONTEND_PORT || 5230)
@@ -299,6 +301,7 @@ async function runCheck(page) {
     throw new Error(`step 3 失败：播种不完整 ${JSON.stringify(before)}`)
   }
   log(`step 3: book=${before.bookId} chapters=${before.chapterTitles.length} artifact=${before.artifactId} media=${before.mediaByteSize}B`)
+  await checkReviewedShelf(page, zipPath)
 
   log('step 4: 清空 Pinax 全部数据并确认空')
   await clearAllPinaxData(page)
@@ -353,7 +356,10 @@ async function runCheck(page) {
   log('step 7: 幂等恢复通过（新增 0 项，无重复对象）')
 
   log('step 8: 注入 IndexedDB 写失败 → 恢复失败且旧数据不被半覆盖')
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
+    const source = await import('/src/services/worldbook/worldbookSourceArchive.js')
+    const { artifacts } = await source.loadAllSourceArchiveRecords()
+    await source.restoreSourceArchiveRecords({ artifacts: [{ ...artifacts[0], title: '稍后修订的来源' }] })
     // 只让第一次来源归档写失败（典型瞬时配额/锁冲突），随后恢复原实现——
     // 验证“失败 + 补偿回滚成功”路径：旧数据必须完整保留。
     const originalPut = IDBObjectStore.prototype.put
@@ -371,7 +377,10 @@ async function runCheck(page) {
   await settingsForFailure.locator('[data-test="backup-import-button"]').click()
   await fileInput.setInputFiles(zipPath)
   await review.waitFor({ timeout: 30_000 })
-  await settingsForFailure.locator('[data-test="workspace-backup-restore-confirm"]').click()
+  const confirmFailure = settingsForFailure.locator('[data-test="workspace-backup-restore-confirm"]')
+  if (!await confirmFailure.isDisabled()) throw new Error('已有归档冲突应先确认覆盖')
+  await review.getByRole('checkbox').check()
+  await confirmFailure.click()
   const failureFeedback = page.locator('[data-test="backup-feedback"]')
   await failureFeedback.filter({ hasText: '恢复未完成' }).waitFor({ timeout: 30_000 })
   await page.evaluate(() => {
@@ -387,6 +396,150 @@ async function runCheck(page) {
 
   await page.screenshot({ path: join(OUT_DIR, 'backup-check-final.png'), fullPage: false })
   log('journey complete')
+}
+
+// Two real tabs queue an incremental chapter edit immediately before the
+// reviewed restore. The root key and overwrite counts stay identical.
+async function checkReviewedShelf(page, zipPath) {
+  const writer = await page.context().newPage()
+  try {
+    await writer.goto(BASE_URL)
+    const original = await writer.evaluate(() => localStorage.getItem('writing_books'))
+    const json = { app: 'Pinax', version: 2, keys: { writing_books: original } }
+    for (const format of ['json', 'zip']) {
+      await writer.evaluate(async ({ original, format }) => {
+        const { readStoredText } = await import('/src/services/storage/writingStorageCodec.js')
+        const { persistWritingChapterChange, normalizeWritingBook } = await import('/src/services/writing/writingBooksRepository.js')
+        const { withWritingBooksLock } = await import('/src/services/storage/writingBooksLock.js')
+        const media = await import('/src/services/media/mediaAssetStore.js')
+        if (format === 'zip') await media.deleteMediaBinaryById('media-alpha-1')
+        window.hasTestMedia = async () => Boolean(await media.getMediaBinaryById('media-alpha-1'))
+        const books = JSON.parse(original).map(normalizeWritingBook)
+        books[0].chapters.push({ id: 'large-test', title: '长篇夹具', content: '墨'.repeat(540000) })
+        localStorage.setItem('writing_books', JSON.stringify(books))
+        window.editTestBook = title => withWritingBooksLock(() => {
+          const book = JSON.parse(readStoredText(localStorage, 'writing_books'))[0]
+          const chapter = book.chapters[0]
+          if (!persistWritingChapterChange({ bookId: book.id, original: chapter, chapter: { ...chapter, title }, updatedAt: title })) {
+            throw Error('expected an incremental chapter commit')
+          }
+        })
+        await window.editTestBook('预览时的稿件')
+        window.testHeader = localStorage.getItem('writing_books')
+      }, { original, format })
+      const input = page.locator('[data-test="backup-import-input"]')
+      await input.setInputFiles(format === 'zip' ? zipPath : { name: 'review.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(json)) })
+      const panel = page.locator(`[data-test="${format === 'zip' ? 'workspace-backup-review' : 'backup-review'}"]`)
+      await panel.waitFor()
+      const consent = panel.getByRole('checkbox')
+      if (await consent.count()) await consent.check()
+      const confirm = panel.locator('[data-test$="restore-confirm"]')
+      await writer.evaluate(() => new Promise(ready => {
+        void navigator.locks.request('pinax-writing-books-save', () => new Promise(release => { window.releaseTestLock = release; ready() }))
+      }))
+      await writer.evaluate(() => { window.queuedTestWrite = window.editTestBook('其他标签刚保存的修订') })
+      await confirm.click()
+      await writer.waitForFunction(async () => (await navigator.locks.query()).pending.filter(lock => lock.name === 'pinax-writing-books-save').length >= 2)
+      if (format === 'zip') await writer.waitForFunction(() => window.hasTestMedia())
+      await writer.evaluate(async () => { window.releaseTestLock(); await window.queuedTestWrite })
+      await page.locator('[data-test="backup-feedback"]').filter({ hasText: '预览后本机数据有改动' }).waitFor()
+      const retained = await writer.evaluate(async () => {
+        const { readStoredText } = await import('/src/services/storage/writingStorageCodec.js')
+        return localStorage.getItem('writing_books') === window.testHeader && JSON.parse(readStoredText(localStorage, 'writing_books'))[0].chapters[0].title === '其他标签刚保存的修订'
+      })
+      assert.ok(retained, 'a stale confirmation overwrote the concurrent chapter')
+      if (format === 'zip') assert.equal(await writer.evaluate(() => window.hasTestMedia()), false, 'late conflict must compensate the binary write')
+      if (await consent.count()) { assert.equal(await consent.isChecked(), false); await consent.check() }
+      await confirm.click()
+      await writer.waitForFunction(original => localStorage.getItem('writing_books') === original, original)
+      await panel.waitFor({ state: 'detached' })
+      if (format === 'zip') await page.waitForFunction(() => !document.querySelector('[data-test="backup-feedback"]')?.textContent.includes('完整工作区已恢复'))
+      log(`${format} reviewed restore: stale confirmation refused, new preview confirmed`)
+    }
+  } finally { await writer.close() }
+}
+
+async function checkSparseRestore(browser, zipPath) {
+  const context = await browser.newContext()
+  try {
+    const page = await context.newPage()
+    await page.route('**/__backup_fixture__', route => route.fulfill({ contentType: 'text/html', body: '<title>ZIP fixture</title>' }))
+    await page.goto(BASE_URL + '/__backup_fixture__')
+    const observations = await page.evaluate(async () => {
+      const backup = await import('/src/services/storage/workspaceBackupBundle.js')
+      const archive = await import('/src/services/worldbook/worldbookSourceArchive.js')
+      const { createIndexedDbBinaryStore } = await import('/src/services/media/browserMediaBinaryStore.js')
+      const media = createIndexedDbBinaryStore()
+      const assets = Array.from({ length: 40 }, (_, i) => ({ id: 'sparse-' + i, schemaVersion: 1, mimeType: 'image/png', storageRef: 'sparse-' + i }))
+      localStorage.setItem('media_assets_v1', JSON.stringify(assets))
+      await Promise.all(assets.map((asset, i) => media.put(asset.id, new Blob([Uint8Array.of(i)], { type: asset.mimeType }))))
+      await archive.restoreSourceArchiveRecords({ chunks: [{ id: 'included', text: '归档内容' }] })
+
+      const original = { open: IDBFactory.prototype.open, getAll: IDBObjectStore.prototype.getAll, get: IDBObjectStore.prototype.get }
+      const empty = () => ({ mediaOpens: 0, scans: 0, sourcePointReads: 0 })
+      let calls = empty()
+      IDBFactory.prototype.open = function (name, ...args) {
+        if (name === 'pinax-media') calls.mediaOpens++
+        return original.open.call(this, name, ...args)
+      }
+      for (const op of ['getAll', 'get']) {
+        IDBObjectStore.prototype[op] = function (...args) {
+          if (this.transaction.db.name === 'pinax-source-archive') calls[op === 'getAll' ? 'scans' : 'sourcePointReads']++
+          return original[op].apply(this, args)
+        }
+      }
+      try {
+        const zip = await backup.buildWorkspaceBackupBundle()
+        const exportMediaOpens = calls.mediaOpens
+        await archive.restoreSourceArchiveRecords({ chunks: Array.from({ length: 1200 }, (_, i) => ({ id: 'other-' + i, text: '另一部书的资料' })) })
+        calls = empty()
+        const inspected = await backup.inspectWorkspaceBackup(zip.bytes)
+        const previewCalls = calls
+        calls = empty()
+        const restored = await backup.restoreWorkspaceBackupBundle(zip.bytes, { expectedReviewRevision: inspected.reviewRevision })
+        const restoreCalls = calls
+        calls = empty()
+        const all = [{ id: 'included' }, ...Array.from({ length: 1200 }, (_, i) => ({ id: 'other-' + i }))]
+        const dense = await archive.readSourceArchiveRestoreMatches({ chunks: all })
+        const denseCalls = { ...calls }
+        IDBObjectStore.prototype.getAll = function (...args) {
+          const request = original.getAll.apply(this, args)
+          if (this.transaction.db.name === 'pinax-source-archive') this.transaction.abort()
+          return request
+        }
+        let readAborted = false
+        try { await archive.readSourceArchiveRestoreMatches({ chunks: all }) }
+        catch { readAborted = true }
+        const [kept] = await archive.loadSourceChunks(['included'])
+        return { exportMediaOpens, previewCalls, restoreCalls, restored: restored.success, skippedMedia: inspected.media.skip.length,
+          denseCalls, matched: dense.chunks.size, readAborted, kept: kept?.text }
+      } finally {
+        IDBFactory.prototype.open = original.open
+        IDBObjectStore.prototype.getAll = original.getAll
+        IDBObjectStore.prototype.get = original.get
+      }
+    })
+    const sparse = { mediaOpens: 1, scans: 0, sourcePointReads: 1 }
+    assert.deepEqual(observations, { exportMediaOpens: 1, previewCalls: sparse, restoreCalls: sparse, restored: true, skippedMedia: 40,
+      denseCalls: { mediaOpens: 0, scans: 1, sourcePointReads: 0 }, matched: 1201, readAborted: true, kept: '归档内容' })
+    log('40 media binaries used one read transaction; matching ZIP read just its one source row out of 1,201 in preview and restore')
+
+    const corruptZip = await JSZip.loadAsync(await readFile(zipPath))
+    const manifest = JSON.parse(await corruptZip.file('manifest.json').async('string'))
+    // No metadata refers to this optional entry. Its declared checksum must
+    // still be enforced before any of the other domains can be restored.
+    const orphan = 'media/binaries/unreferenced.bin'
+    manifest.files[orphan] = '0'.repeat(64)
+    corruptZip.file('manifest.json', JSON.stringify(manifest))
+    corruptZip.file(orphan, Buffer.from([42]))
+    const rejected = await page.evaluate(async ({ bytes, orphan }) => {
+      const backup = await import('/src/services/storage/workspaceBackupBundle.js')
+      const result = await backup.restoreWorkspaceBackupBundle(Uint8Array.from(bytes), { acceptRestoreRisk: true })
+      return result.reason === 'invalid-backup' && result.inspection.errors.some(message => message.includes(orphan))
+        && result.domains === null && localStorage.getItem('writing_books') === null
+    }, { bytes: [...await corruptZip.generateAsync({ type: 'uint8array' })], orphan })
+    assert.equal(rejected, true)
+  } finally { await context.close() }
 }
 
 async function main() {
@@ -425,6 +578,7 @@ async function main() {
 
     try {
       await runCheck(page)
+      await checkSparseRestore(browser, join(OUT_DIR, 'captured-workspace-backup.zip'))
     } catch (error) {
       failed = true
       console.error('[workspace-backup-check] FAILED:', error?.message || error)

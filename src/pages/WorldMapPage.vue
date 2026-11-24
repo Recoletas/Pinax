@@ -139,6 +139,8 @@ function openWorldbookImport() {
   /* W4c.5: bounded height + overflow:hidden so the .world-map-page__body
      below becomes a real scroll container (otherwise the inner overflow:auto
      is dead and sticky descendants bind to <html> instead of the page). */
+  width: 100%;
+  min-width: 0;
   height: 100%;
   min-height: 0;
   display: flex;

@@ -285,9 +285,8 @@ try {
     check(!projection.blocks.some(block => block.included && block.claim && block.claim.subjectKey === '货栈'), 'over-budget object was truncated into context instead of excluded')
     const auditBlock = projection.blocks.find(block => !block.included && block.recallAudit)
     check(auditBlock && auditBlock.recallAudit.omittedOverBudget >= 1 && auditBlock.text === '', 'over-budget exclusion not audited')
-    // Story time: a fact with known bounds matching the moment is 'inside';
-    // an OPEN-ended fact that started earlier stays 'unknown' (frozen
-    // knowledgeReadModel semantics: never silently "still holding").
+    // A declared open end keeps a state in force after its start. If the
+    // end is unknown, the story cannot claim that the state still holds.
     const timeline = { id: 't-xa', eras: [{ id: 'era-xa', order: 1 }] }
     const storyFact = await seedFact('历官', '任期', '第三年起', { storyInterval: { timelineId: 't-xa', start: { eraId: 'era-xa', ordinal: 3 }, end: { eraId: 'era-xa', ordinal: 6 }, endSemantic: 'exclusive' } })
     void storyFact
@@ -296,7 +295,7 @@ try {
     const insideBlocks = storyProjection.blocks.filter(block => block.included)
     check(insideBlocks.some(block => block.claim && block.claim.subjectKey === '历官' && block.claim.predicate === '任期'), 'bounded fact missed its story moment')
     check(insideBlocks.every(block => block.timeMatch === 'inside'), 'included blocks must be decisive inside matches')
-    check(!insideBlocks.some(block => block.claim && block.claim.predicate === '品级'), 'open-ended fact silently treated as holding (G-A09)')
+    check(insideBlocks.some(block => block.claim?.predicate === '品级'), 'explicitly ongoing state missing inside its interval')
     check(storyProjection.blocks.some(block => !block.included && block.recallAudit?.excludedByReason?.storyTimeUnknown >= 1), 'unknown-range facts not tallied in audit')
 
     stage("AX08")
@@ -330,6 +329,14 @@ try {
     const traceOut = await tool({ action: 'trace', scope: sessionScope, turnId: 'xa-turn-45', maxHops: 5 })
     check(traceOut.ok && traceOut.results.length === 6 && traceOut.truncated === true, `bounded trace broken: ${traceOut.results.length}/${traceOut.truncated}`)
 
+    await seedFact('历官', '代职', '离任日期未记', { storyInterval: { timelineId: 't-xa', start: { eraId: 'era-xa', ordinal: 1 }, end: null, endSemantic: 'unknown' } })
+    const unknownProjection = await P.createLedgerFactProjection(db)({
+      scope, subjectKeys: ['历官'], storyAt: { timelineId: 't-xa', eraId: 'era-xa', ordinal: 4, precision: 'year' }, timeline
+    })
+    check(unknownProjection.ok && !unknownProjection.blocks.some(block => block.included && block.claim?.predicate === '代职'),
+      'an unknown end was treated as an ongoing state (G-A09)')
+    check(unknownProjection.blocks.some(block => block.recallAudit?.excludedByReason?.storyTimeUnknown >= 1),
+      'unknown end is missing from the recall audit')
     return { g01Pages: pagesG01, frozenSize: freezeSeen.size, drainArchived: drain1.archived }
   }, 240000, 'part1')
   console.log('part1', JSON.stringify(result))
@@ -535,16 +542,15 @@ try {
     const probe = await import('/scripts/fixtures/ledger/upgrade-probe.mjs')
     const name = 'pinax-ledger-lifecycle-smoke'
     await probe.deleteDatabase(name)
-    // Seed a v2 database through the production opener.
+    // Seed the released v4 physical layout.
     const L = await import('/src/services/memory/ledger/ledgerDb.js')
-    const seeded = await L.openLedgerDbNamed(name)
-    if (!seeded.ok) throw new Error(`seed open failed: ${seeded.reason}`)
-    await seeded.db.table('ledgerMeta').put({ id: 'marker', value: 1 })
-    await L.closeLedgerDb(seeded.db)
+    const seeded = await probe.openVersion4(name)
+    await seeded.table('ledgerMeta').put({ id: 'marker', value: 1 })
+    await L.closeLedgerDb(seeded)
 
     // Old tab holds the DB and ignores versionchange.
     const holder = await probe.holdOldConnection(name)
-    const blockedDb = probe.openFutureVersion(name)
+    const blockedDb = L.createLedgerDb(name).db
     let timer
     const notified = new Promise(resolve => {
       blockedDb.on('blocked', () => resolve(true))
@@ -565,7 +571,7 @@ try {
     // Release: old tab closes, upgrade proceeds.
     probe.closeConnection(holder)
     const upgradeResult = await new Promise((resolve) => {
-      const retry = probe.openFutureVersion(name)
+      const retry = L.createLedgerDb(name).db
       retry.open().then(() => { retry.close(); resolve('upgraded') }, error => { try { retry.close() } catch { /* best-effort close */ } resolve(`failed:${error?.name}`) })
     })
     // Verify via a fresh production-style open that the marker survived

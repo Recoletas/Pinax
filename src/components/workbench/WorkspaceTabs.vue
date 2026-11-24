@@ -37,6 +37,7 @@ const SURFACE_ICONS = {
   'collaboration-review': 'collaboration'
 }
 
+const homeIconUrl = `${import.meta.env.BASE_URL}pinax-icon-192.png`
 const HOME_TAB_ID = 'pinax-home'
 const homeTab = { id: HOME_TAB_ID, key: 'home', title: '首页', surface: 'home', pinned: true }
 const tabs = computed(() => {
@@ -73,6 +74,13 @@ function projectInkStyle(tab) {
   }
   const hue = hash % 360
   return { '--ws-project-ink': `hsl(${hue} 38% 40%)` }
+}
+
+// 内容标签只显示章名，序号留在悬停提示里；同时收拢作者标题中的全角空格。
+const TAB_CHAPTER_ORDINAL = /^(第\s*[零〇一二三四五六七八九十百千万两0-9０-９]+\s*[章回节卷])[\s\u3000:：·.、-]+(?=\S)/u
+function visibleTitle(tab, title) {
+  const text = String(title || '').replace(/[\s\u3000]+/gu, ' ').trim()
+  return tab.view ? text.replace(TAB_CHAPTER_ORDINAL, '') : text
 }
 
 // 760-1179 的缩短标题：项目子 surface 只显示 surface 名，写作标签显示书名。
@@ -250,11 +258,11 @@ onBeforeUnmount(() => {
           @click="activateTab(tab.id)"
         >
           <span class="ws-tab__project-bar" aria-hidden="true"></span>
-          <img v-if="tab.surface === 'home'" class="ws-tab__brand" src="/pinax-icon-192.png" alt="" width="18" height="18" />
+          <img v-if="tab.surface === 'home'" class="ws-tab__brand" :src="homeIconUrl" alt="" width="18" height="18" />
           <WorkbenchIcon v-else class="ws-tab__icon" :name="tab.icon || (tab.projectGrouped ? 'book' : surfaceIcon(tab.surface))" :size="14" />
           <span v-if="tab.surface !== 'home'" class="ws-tab__label">
-            <span class="ws-tab__label-full">{{ displayTitle(tab) }}</span>
-            <span class="ws-tab__label-short">{{ shortTitle(tab) }}</span>
+            <span class="ws-tab__label-full">{{ visibleTitle(tab, displayTitle(tab)) }}</span>
+            <span class="ws-tab__label-short">{{ visibleTitle(tab, shortTitle(tab)) }}</span>
           </span>
           <span v-if="tab.dirty" class="ws-tab__dirty" :title="tr(&quot;有未保存更改&quot;)" :aria-label="tr(&quot;有未保存更改&quot;)"></span>
         </button>
@@ -309,7 +317,7 @@ onBeforeUnmount(() => {
 .ws-tab-slot {
   position: relative;
   display: inline-flex;
-  align-self: stretch;
+  align-self: center;
   flex: 0 0 auto;
   min-width: 0;
 }
@@ -450,8 +458,27 @@ onBeforeUnmount(() => {
   .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }
 }
 
+@media (min-width: 760px) {
+  .ws-tab-slot:not(:has([data-tab-key="home"])) { flex: 0 1 154px; min-width: 96px; }
+  .ws-tab-slot:has(.is-active:not([data-tab-key="home"])) { flex-basis: 224px; min-width: 128px; }
+  .ws-tab-slot .ws-tab:not([data-tab-key="home"]) {
+    width: 100%;
+    max-width: none;
+    min-width: 0;
+    height: 32px;
+    padding-inline: 9px 32px;
+    gap: 6px;
+    border-radius: 6px;
+    font-size: 13px;
+    text-align: start;
+  }
+  .ws-tab-slot .ws-tab.is-active:not([data-tab-key="home"]) { border-color: var(--hairline-soft); }
+}
+@media (min-width: 760px) and (pointer: fine) {
+  .ws-tab__close { right: 4px; width: 24px; height: 24px; border-radius: 5px; }
+}
 @media (pointer: coarse) {
-  .ws-tab { min-height: 44px; padding-right: 48px; }
+  .ws-tab-slot .ws-tab:not(.is-pinned) { min-height: 44px; padding-inline-end: 48px; }
   .ws-tab__close { width: 44px; height: 44px; right: 0; opacity: 1; }
   .ws-tab.is-pinned { padding-right: 8px; }
 }

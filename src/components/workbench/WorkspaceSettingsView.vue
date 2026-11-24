@@ -55,7 +55,7 @@ async function created(resources) {
   </section>
 </template>
 <style scoped>
-.workspace-settings-view { display: flex; flex-direction: column; min-width: 0; min-height: 100%; color: var(--text-primary); background: var(--surface-workbench); container-type: inline-size; container-name: workspace-settings; }
+.workspace-settings-view { display: flex; flex-direction: column; min-width: 0; height: 100%; min-height: 0; color: var(--text-primary); background: var(--surface-workbench); container-type: inline-size; container-name: workspace-settings; }
 .workspace-settings-empty { padding: 48px 24px; }
 .workspace-settings-view :deep(.worldbook-content-workspace) { flex: 1; }
 @container workspace-settings (max-width: 680px) {

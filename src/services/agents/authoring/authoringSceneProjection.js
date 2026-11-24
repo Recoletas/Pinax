@@ -155,9 +155,12 @@ function buildV2Scene({
     const anchor = resolution.anchor
     const timeLabel = cleanText(anchor.time?.label)
     const timePeriod = cleanText(anchor.time?.period)
-    if (timeLabel || timePeriod) {
+    const storyAt = anchor.time?.storyAt
+    if (timeLabel || timePeriod || storyAt != null) {
       time = {
-        id: stableId('time', timeLabel, timePeriod),
+        id: storyAt == null ? stableId('time', timeLabel, timePeriod) : stableId('time', timeLabel, timePeriod, storyAt, ...[anchor.time?.storyClock?.timelineId, anchor.time?.storyClock?.eraId].filter(Boolean)),
+        ...(storyAt == null ? {} : { storyAt }),
+        ...(anchor.time?.storyClock ? { storyClock: anchor.time.storyClock, clockLabel: anchor.time.clockLabel } : {}),
         label: timeLabel || timePeriod,
         period: timePeriod,
         sourceRefs: [`scene-anchor:${anchor.id}`]

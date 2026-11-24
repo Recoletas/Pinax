@@ -364,6 +364,16 @@ function historyEvidence(projectId, worldbook) {
   })
 }
 
+function describeSceneEvidence(present, planned, location, time) {
+  return [
+    present.length ? `在场人物：${present.join('、')}` : '',
+    planned.length ? `计划入场：${planned.join('、')}` : '',
+    location ? `地点：${location}` : '',
+    time?.label || time?.period ? `时间：${text(time.label || time.period)}` : '',
+    Number.isSafeInteger(time?.storyAt) ? `故事序号：${time.storyAt}` : ''
+  ].filter(Boolean).join('；')
+}
+
 function sceneEvidence(projectId, book, worldbook, liveProjection = null) {
   const entries = new Map(list(worldbook?.entries).map((entry) => [text(entry?.id), entry]))
   const boundWorldbookId = text(worldbook?.id)
@@ -381,15 +391,11 @@ function sceneEvidence(projectId, book, worldbook, liveProjection = null) {
       // unit 都必须排除。此处不能写反为“只保留有 status 的锚点”。
       if (!anchor?.unitId || text(anchor.status) || !Number.isInteger(unitIndex)) return []
       if (!boundWorldbookId || text(anchor.worldbookId) !== boundWorldbookId) return []
-      const characters = [...anchor.presentCharacterIds, ...anchor.plannedCharacterIds]
-        .map((id) => text(entries.get(id)?.name || entries.get(id)?.keys?.[0] || id)).filter(Boolean)
+      const names = ids => ids.map(id => text(entries.get(id)?.name || entries.get(id)?.keys?.[0] || id)).filter(Boolean)
+      const characters = names(anchor.presentCharacterIds)
+      const planned = names(anchor.plannedCharacterIds)
       const location = text(entries.get(anchor.locationId)?.name || entries.get(anchor.locationId)?.keys?.[0])
-      const time = text(anchor.time?.label || anchor.time?.period)
-      const excerpt = [
-        characters.length ? `人物：${characters.join('、')}` : '',
-        location ? `地点：${location}` : '',
-        time ? `时间：${time}` : ''
-      ].filter(Boolean).join('；')
+      const excerpt = describeSceneEvidence(characters, planned, location, anchor.time)
       if (!excerpt) return []
       return [{
         projectId,
@@ -406,20 +412,16 @@ function sceneEvidence(projectId, book, worldbook, liveProjection = null) {
         }),
         locator: { kind: 'scene', chapterId, unitId: anchor.unitId, anchorId: anchor.id },
         position: { chapterId, chapterIndex, unitId: anchor.unitId, unitIndex },
-        searchAliases: [chapterTitle, ...characters, location, time]
+        searchAliases: [chapterTitle, ...characters, ...planned, location, text(anchor.time?.label || anchor.time?.period)]
       }]
     })
   })
   if (!liveProjection?.projectionFingerprint || !liveProjection?.chapterId || !liveProjection?.activeUnitId) return fromAnchors
-  const characters = [...list(liveProjection.presentCharacters), ...list(liveProjection.plannedCharacters)]
-    .map((character) => text(character?.name || character?.id)).filter(Boolean)
+  const names = cast => list(cast).map(character => text(character?.name || character?.id)).filter(Boolean)
+  const characters = names(liveProjection.presentCharacters)
+  const planned = names(liveProjection.plannedCharacters)
   const location = text(liveProjection.location?.name || liveProjection.location?.label)
-  const time = text(liveProjection.time?.label)
-  const excerpt = [
-    characters.length ? `人物：${characters.join('、')}` : '',
-    location ? `地点：${location}` : '',
-    time ? `时间：${time}` : ''
-  ].filter(Boolean).join('；')
+  const excerpt = describeSceneEvidence(characters, planned, location, liveProjection.time)
   if (!excerpt) return fromAnchors
   const sourceRef = `scene-projection:${text(liveProjection.chapterId)}:${text(liveProjection.activeUnitId)}`
   const chapterIndex = list(book?.chapters).findIndex((chapter) => text(chapter?.id) === text(liveProjection.chapterId))
@@ -446,7 +448,7 @@ function sceneEvidence(projectId, book, worldbook, liveProjection = null) {
       unitId: text(liveProjection.activeUnitId),
       unitIndex
     },
-    searchAliases: [...characters, location, time]
+    searchAliases: [...characters, ...planned, location, text(liveProjection.time?.label || liveProjection.time?.period)]
   }, ...fromAnchors.filter((item) => item.sourceRef !== `scene-anchor:${text(liveProjection.anchorId)}`)]
 }
 

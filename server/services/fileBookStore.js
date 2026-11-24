@@ -53,7 +53,7 @@ export function createFileBookStore({ service = createLocalMirrorService() } = {
       const result = createMemoryBookStore({ books: new Map([[id, files.book()]]) }).rename(id, title)
       if (!result.ok) return result
       service.mirrorBook({ book: result.value, domains: ['book'], baseRevision: token.revision,
-        expectedBookFingerprint: token.book, expectedWorldbookFingerprint: token.worldbook })
+        expectedBookFingerprint: token.book, expectedWorldbookFingerprint: token.worldbook }, { scope: 'metadata' })
       return ok(service.readBookFromFolder(current.entry.rootPath).book)
     }),
     remove: wrap(id => {

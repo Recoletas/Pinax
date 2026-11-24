@@ -1,3 +1,4 @@
+import { readStoredText } from '../storage/writingStorageCodec.js'
 import { STORAGE_KEYS } from '../../composables/useStorage.js'
 import { STORAGE_KEY_POLICY } from '../storage/storageKeyPolicy.js'
 
@@ -75,7 +76,7 @@ export async function buildLegacyMigrationBundle(storage = localStorage, deps = 
     const sourceRecordId = storage.key(index)
     const classification = classifyLegacyStorageKey(sourceRecordId)
     if (classification?.storageClass !== 'project') continue
-    const raw = storage.getItem(sourceRecordId)
+    const raw = readStoredText(storage, sourceRecordId)
     if (typeof raw !== 'string') continue
     const byteLength = new TextEncoder().encode(raw).byteLength
     totalBytes += byteLength

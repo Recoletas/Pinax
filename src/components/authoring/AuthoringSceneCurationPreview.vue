@@ -1,4 +1,5 @@
 <script setup>
+import { sceneTimeLabel } from '../../services/agents/authoring/authoringSceneAnchors.js'
 import { computed } from 'vue'
 
 const props = defineProps({
@@ -31,6 +32,10 @@ function locationName(id) {
   return id ? (locationNames.value.get(String(id)) || '已失效地点') : '未指定'
 }
 
+function previewTime(time) {
+  const label = [time?.label, time?.period].filter(Boolean).join(' · ')
+  return sceneTimeLabel({ ...time, label }, '故事序号') || '未指定'
+}
 const rows = computed(() => {
   const baseline = props.baseline || props.draft
   return [
@@ -49,8 +54,8 @@ const rows = computed(() => {
     {
       key: 'time',
       label: '时间',
-      before: [baseline.time?.label, baseline.time?.period].filter(Boolean).join(' · ') || '未指定',
-      after: [props.draft.time?.label, props.draft.time?.period].filter(Boolean).join(' · ') || '未指定'
+      before: previewTime(baseline.time),
+      after: previewTime(props.draft.time)
     }
   ].map((row) => ({ ...row, changed: row.before !== row.after }))
 })

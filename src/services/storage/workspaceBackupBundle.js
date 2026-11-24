@@ -1,3 +1,5 @@
+import { readRestoreComparison } from './writingStorageCodec.js'
+import { withWritingBooksLock } from './writingBooksLock.js'
 import JSZip from 'jszip'
 import { STORAGE_KEYS } from '../../composables/useStorage'
 import {
@@ -14,16 +16,18 @@ import {
   SOURCE_ARCHIVE_STORES,
   assertArchiveCapacity,
   loadAllSourceArchiveRecords,
-  replaceAllSourceArchiveRecords,
+  readSourceArchiveRestoreMatches,
+  undoSourceArchiveRestore,
   restoreSourceArchiveRecords
 } from '../worldbook/worldbookSourceArchive'
 import {
   MEDIA_ASSET_SCHEMA_VERSION,
+  createIndexedDbBinaryStore,
   deleteMediaBinaryById,
   getMediaBinaryById,
   putMediaBinaryById
 } from '../media/mediaAssetStore'
-import { sha256HexOfBytes, utf8Bytes } from './backupHash'
+import { bytesToHex, sha256HexOfBytes, utf8Bytes } from './backupHash'
 import { collectMemoryHistory, importMemoryHistory, rollbackImportedMemoryHistory, validateMemoryHistory } from '../memory/memoryHistoryStore'
 // AX11/AX12: the fact
 // ledger domain joins the complete workspace ZIP. Implementation lives in
@@ -81,20 +85,10 @@ const MIME_EXTENSIONS = {
   'application/octet-stream': 'bin'
 }
 
-function bytesToBase64(bytes) {
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
-  }
-  return btoa(binary)
-}
-
-function base64ToBytes(base64) {
-  const binary = atob(base64)
-  const bytes = new Uint8Array(binary.length)
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
-  return bytes
+// The v3 digest is the same on HTTPS, localhost and older HTTP hosts.
+async function fileDigest(bytes) {
+  if (!globalThis.crypto?.subtle) return sha256HexOfBytes(bytes)
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)))
 }
 
 export class WorkspaceBackupCancelled extends Error {
@@ -108,13 +102,9 @@ function assertLive(signal) {
   if (signal?.aborted) throw new WorkspaceBackupCancelled()
 }
 
-function jsonBytes(value) {
-  return utf8Bytes(JSON.stringify(value))
-}
-
-function readMediaAssets(storage) {
+function parseMediaAssets(raw) {
   try {
-    const parsed = JSON.parse(storage.getItem(STORAGE_KEYS.MEDIA_ASSETS) || '[]')
+    const parsed = JSON.parse(raw || '[]')
     return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
@@ -151,10 +141,17 @@ function isAllowedBinaryPath(path) {
   return Boolean(name) && !name.includes('/') && !name.includes('\\') && !name.includes('..')
 }
 
-async function readEntryBytes(entry) {
-  // 与写入侧约定一致：二进制条目以 base64 存取（uint8array 直读在 jsdom 不可用）
-  const base64 = await entry.async('base64')
-  return base64ToBytes(base64)
+async function readMediaBinaries(ids, binaryStore, allowMissing = false) {
+  const rows = new Map()
+  if (!ids.length) return rows
+  const store = binaryStore || createIndexedDbBinaryStore()
+  if (store.getMany) {
+    try { return await store.getMany(ids) } catch (error) { if (!allowMissing) throw error }
+  }
+  for (const id of ids) {
+    try { rows.set(id, await store.get(id)) } catch (error) { if (!allowMissing) throw error }
+  }
+  return rows
 }
 
 async function readZipEntries(bytes) {
@@ -228,31 +225,11 @@ export async function buildWorkspaceBackupBundle({
   const factLedger = await collectFactLedgerForBackup(signal)
   assertLive(signal)
 
-  const mediaAssets = readMediaAssets(storage)
-  const binaries = []
+  // Both metadata copies in the ZIP describe the same captured library.
+  const mediaAssets = parseMediaAssets(localStorageBackup.keys[STORAGE_KEYS.MEDIA_ASSETS])
+  const mediaBlobs = await readMediaBinaries(mediaAssets.filter(asset => !mediaExternalOnly(asset)).map(asset => asset.id), binaryStore, true)
   const missingBinaryIds = []
   const externalOnlyIds = []
-  let mediaBytes = 0
-  for (const asset of mediaAssets) {
-    assertLive(signal)
-    if (mediaExternalOnly(asset)) {
-      externalOnlyIds.push(asset.id)
-      continue
-    }
-    let blob = null
-    try {
-      blob = await getMediaBinaryById(asset.id, { binaryStore })
-    } catch {
-      blob = null
-    }
-    const bytes = await blobToUint8(blob)
-    if (!bytes) {
-      missingBinaryIds.push(asset.id)
-      continue
-    }
-    mediaBytes += bytes.length
-    binaries.push({ asset, path: binaryPathFor(asset), bytes })
-  }
 
   const sourceCounts = {
     artifactCount: sourceRecords.artifacts.length,
@@ -275,7 +252,7 @@ export async function buildWorkspaceBackupBundle({
       localStorage: {
         schemaVersion: BACKUP_VERSION,
         keyCount: localStorageBackup.keyCount,
-        bytes: jsonBytes(localStorageBackup).length
+        bytes: 0
       },
       sourceArchive: {
         schemaVersion: SOURCE_ARCHIVE_SCHEMA_VERSION,
@@ -284,10 +261,10 @@ export async function buildWorkspaceBackupBundle({
       media: {
         schemaVersion: MEDIA_ASSET_SCHEMA_VERSION,
         assetCount: mediaAssets.length,
-        binaryCount: binaries.length,
-        externalCount: externalOnlyIds.length,
+        binaryCount: 0,
+        externalCount: 0,
         missingBinaryIds,
-        bytes: mediaBytes
+        bytes: 0
       }
     },
     files: {},
@@ -296,28 +273,37 @@ export async function buildWorkspaceBackupBundle({
   }
 
   const zip = new JSZip()
-  // jsdom 兼容：文本条目以字符串写入；二进制条目以 base64 写入（uint8array 直写在 jsdom 读不回）
-  const addTextFile = (path, text) => {
-    zip.file(path, text)
-    manifest.files[path] = sha256HexOfBytes(utf8Bytes(text))
-  }
-  const addBinaryFile = (path, bytes) => {
-    zip.file(path, bytesToBase64(bytes), { base64: true })
-    manifest.files[path] = sha256HexOfBytes(bytes)
-  }
-  addTextFile(LOCAL_STORAGE_PATH, JSON.stringify(localStorageBackup))
-  addTextFile(MEMORY_HISTORY_PATH, JSON.stringify(memoryHistory))
-  if (!factLedger.unavailable) {
-    addTextFile(FACT_LEDGER_PATH, JSON.stringify(factLedger))
-  }
-  addTextFile(SOURCE_ARCHIVE_PATHS.artifacts, JSON.stringify(sourceRecords.artifacts))
-  addTextFile(SOURCE_ARCHIVE_PATHS.chunks, JSON.stringify(sourceRecords.chunks))
-  addTextFile(SOURCE_ARCHIVE_PATHS.workspaces, JSON.stringify(sourceRecords.workspaces))
-  addTextFile(MEDIA_METADATA_PATH, JSON.stringify(mediaAssets))
-  for (const binary of binaries) {
+  const addFile = async (path, bytes) => {
     assertLive(signal)
-    addBinaryFile(binary.path, binary.bytes)
+    // Node-based hosts (including jsdom) can supply typed arrays from another
+    // realm. Their native Buffer view is recognized by the Node JSZip build.
+    const data = JSZip.support.nodebuffer && globalThis.Buffer
+      ? globalThis.Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength) : bytes
+    zip.file(path, data)
+    manifest.files[path] = await fileDigest(bytes)
+    return bytes.byteLength
   }
+  const addJson = (path, value) => addFile(path, utf8Bytes(JSON.stringify(value)))
+  manifest.domains.localStorage.bytes = await addJson(LOCAL_STORAGE_PATH, localStorageBackup)
+  await addJson(MEMORY_HISTORY_PATH, memoryHistory)
+  if (!factLedger.unavailable) await addJson(FACT_LEDGER_PATH, factLedger)
+  for (const [name, path] of Object.entries(SOURCE_ARCHIVE_PATHS)) await addJson(path, sourceRecords[name])
+  await addJson(MEDIA_METADATA_PATH, mediaAssets)
+  for (const asset of mediaAssets) {
+    assertLive(signal)
+    if (mediaExternalOnly(asset)) {
+      externalOnlyIds.push(asset.id)
+      continue
+    }
+    const bytes = await blobToUint8(mediaBlobs.get(asset.id))
+    if (!bytes) {
+      missingBinaryIds.push(asset.id)
+      continue
+    }
+    manifest.domains.media.bytes += await addFile(binaryPathFor(asset), bytes)
+    manifest.domains.media.binaryCount++
+  }
+  manifest.domains.media.externalCount = externalOnlyIds.length
   if (factLedger.unavailable) {
     manifest.warnings.push(`事实账本未能导出：${factLedger.unavailable}；本包不是完整备份`)
   }
@@ -339,7 +325,7 @@ export async function buildWorkspaceBackupBundle({
       localStorageKeys: localStorageBackup.keyCount,
       ...sourceCounts,
       mediaAssetCount: mediaAssets.length,
-      mediaBinaryCount: binaries.length,
+      mediaBinaryCount: manifest.domains.media.binaryCount,
       missingBinaryIds,
       externalOnlyIds
     }
@@ -383,8 +369,7 @@ function invalidInspection(errors, warnings = []) {
   }
 }
 
-function diffRecordSets(incomingRecords, currentRecords) {
-  const currentById = new Map(currentRecords.map((record) => [String(record.id), record]))
+function diffRecordSets(incomingRecords, currentById) {
   const add = []
   const overwrite = []
   const skip = []
@@ -397,7 +382,11 @@ function diffRecordSets(incomingRecords, currentRecords) {
   return { add, overwrite, skip }
 }
 
-export async function inspectWorkspaceBackup(input, { storage = localStorage, signal } = {}) {
+export function inspectWorkspaceBackup(input, options = {}) {
+  return inspectBundle(input, options)
+}
+
+async function inspectBundle(input, { storage = localStorage, signal, binaryStore } = {}, prepared = {}) {
   assertLive(signal)
   const warnings = []
   const bytes = await toUint8(input)
@@ -429,17 +418,33 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
     return invalidInspection(['媒体 schema 版本不受支持'])
   }
 
-  // 逐文件 SHA-256：任何不一致整包拒绝
-  for (const [path, expectedHash] of Object.entries(manifest.files)) {
+  // Verify and decode each JSON entry from the same bytes. Binary files are
+  // verified below, where the restore plan knows which payloads it needs.
+  async function verifiedEntry(path) {
+    let raw
+    try { raw = await entries.get(path).async('uint8array') } catch { return null }
+    assertLive(signal)
+    return await fileDigest(raw) === manifest.files[path] ? raw : null
+  }
+  // Keep the compressed entries, not every inflated asset, between preflight
+  // and commit. Only files that actually need installation are read again.
+  // Verify those bytes too: callers can pass a mutable Uint8Array.
+  if (prepared.restore) prepared.readBinary = verifiedEntry
+  const uncheckedBinaries = new Set()
+  const json = new Map()
+  for (const path of Object.keys(manifest.files)) {
     const entry = entries.get(path)
     if (!entry) return invalidInspection([`manifest 声明的文件缺失：${path}`])
-    const actualBytes = await readEntryBytes(entry)
-    assertLive(signal)
-    const actualHash = sha256HexOfBytes(actualBytes)
-    if (actualHash !== expectedHash) {
-      return invalidInspection([`文件校验失败：${path} 的内容与 manifest 记录不一致`])
+    if (isAllowedBinaryPath(path)) {
+      uncheckedBinaries.add(path)
+      continue
     }
+    const raw = await verifiedEntry(path)
+    if (!raw) return invalidInspection([`文件校验失败：${path} 的内容与 manifest 记录不一致`])
+    try { json.set(path, { value: JSON.parse(new TextDecoder('utf-8', { ignoreBOM: true }).decode(raw)) }) }
+    catch { return invalidInspection([`${path} 不是有效 JSON`]) }
   }
+  const jsonEntry = path => json.get(path) || { missing: true }
   const declaredPaths = new Set(Object.keys(manifest.files))
   for (const path of entries.keys()) {
     if (path !== 'manifest.json' && !declaredPaths.has(path)) {
@@ -450,10 +455,11 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
   // localStorage 域：先剥离 secret/未知键（默认拒绝导入），再走 v2 计划
   let memoryHistoryCount = 0
   if (manifest.domains?.memoryHistory || entries.has(MEMORY_HISTORY_PATH)) {
-    const history = await readJsonEntry(entries, MEMORY_HISTORY_PATH)
+    const history = jsonEntry(MEMORY_HISTORY_PATH)
     try {
       if (manifest.domains?.memoryHistory?.schemaVersion !== 1 || history.error || history.missing) throw new Error('记忆历史文件或版本缺失')
       memoryHistoryCount = validateMemoryHistory(history.value).length
+      prepared.memoryHistory = history.value
       if (memoryHistoryCount !== manifest.domains.memoryHistory.revisionCount) throw new Error('记忆历史数量校验失败')
     } catch (error) { return invalidInspection([error.message]) }
   }
@@ -461,18 +467,19 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
   // NOT valid complete backups; declared domains must match their counts.
   let factLedgerCount = 0
   if (manifest.domains?.factLedger || entries.has(FACT_LEDGER_PATH)) {
-    if (manifest.domains?.factLedger?.schemaVersion !== 2) return invalidInspection(['事实账本域声明缺失或版本不受支持'])
+    if (!manifest.domains?.factLedger) return invalidInspection(['事实账本域声明缺失'])
     if (manifest.domains.factLedger.unavailable) {
       return invalidInspection(['此包导出时事实账本不可用，不是完整备份；请修复后重新导出'])
     }
-    const ledgerEntry = await readJsonEntry(entries, FACT_LEDGER_PATH)
+    const ledgerEntry = jsonEntry(FACT_LEDGER_PATH)
     try {
       if (ledgerEntry.error || ledgerEntry.missing) throw new Error('事实账本文件缺失')
-      const validated = validateLedgerDomain(ledgerEntry.value, { counts: manifest.domains.factLedger.counts })
+      const validated = validateLedgerDomain(ledgerEntry.value, manifest.domains.factLedger)
       factLedgerCount = validated.total
+      prepared.factLedger = ledgerEntry.value
     } catch (error) { return invalidInspection([error.message]) }
   }
-  const lsEntry = await readJsonEntry(entries, LOCAL_STORAGE_PATH)
+  const lsEntry = jsonEntry(LOCAL_STORAGE_PATH)
   if (lsEntry.error) return invalidInspection([lsEntry.error])
   const lsBackup = lsEntry.value
   if (!lsBackup || typeof lsBackup !== 'object' || !lsBackup.keys) {
@@ -481,72 +488,105 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
   const knownKeys = new Set(getPinaxBackupKeys(storage))
   const rejectedSecretKeys = []
   const unknownKeys = []
-  const filteredKeys = {}
+  const filteredKeys = Object.create(null)
   for (const [key, raw] of Object.entries(lsBackup.keys)) {
     if (PINAX_BACKUP_SECRET_KEYS.includes(key)) rejectedSecretKeys.push(key)
     else if (!knownKeys.has(key) && !PINAX_BACKUP_DYNAMIC_PREFIXES.some((prefix) => key.startsWith(prefix))) unknownKeys.push(key)
     else filteredKeys[key] = raw
   }
+  // ZIP metadata has its own per-asset merge policy. Never replace the entire
+  // live media library through the duplicate v2 localStorage key.
+  delete filteredKeys[STORAGE_KEYS.MEDIA_ASSETS]
   const filteredLsBackup = { ...lsBackup, keys: filteredKeys }
-  const localStoragePlan = createRestorePlan(filteredLsBackup, storage)
+  prepared.localStorageBackup = filteredLsBackup
+  prepared.localPrior = new Map()
+  const localStoragePlan = createRestorePlan(filteredLsBackup, storage, { review: true, localPrior: prepared.localPrior })
   if (!localStoragePlan.valid) {
     return invalidInspection(localStoragePlan.incompatible.slice(0, 3), warnings)
   }
 
   // source archive 域
-  const currentSource = await loadAllSourceArchiveRecords()
   const source = { add: [], overwrite: [], skip: [], unrestoreable: [] }
   const incomingSourceByStore = {}
+  prepared.sourceDiff = {}
   for (const storeName of Object.values(SOURCE_ARCHIVE_STORES)) {
-    const entry = await readJsonEntry(entries, SOURCE_ARCHIVE_PATHS[storeName])
+    const entry = jsonEntry(SOURCE_ARCHIVE_PATHS[storeName])
     if (entry.error) return invalidInspection([entry.error])
     const records = Array.isArray(entry.value) ? entry.value : null
     if (!records) return invalidInspection([`${SOURCE_ARCHIVE_PATHS[storeName]} 不是记录数组`])
+    const usable = [], seen = new Set()
     for (const record of records) {
-      if (!record || typeof record !== 'object' || !record.id
+      if (!record || typeof record.id !== 'string' || !record.id
         || Number(record.schemaVersion ?? SOURCE_ARCHIVE_SCHEMA_VERSION) !== SOURCE_ARCHIVE_SCHEMA_VERSION) {
         source.unrestoreable.push(record?.id || '(无 id)')
         continue
       }
+      if (seen.has(record.id)) return invalidInspection([`来源归档中存在重复记录：${storeName}/${record.id}`])
+      seen.add(record.id)
+      usable.push(record)
     }
-    const usable = records.filter((record) => !source.unrestoreable.includes(record.id))
     incomingSourceByStore[storeName] = usable
-    const diffed = diffRecordSets(usable, currentSource[storeName])
-    source.add.push(...diffed.add)
-    source.overwrite.push(...diffed.overwrite)
-    source.skip.push(...diffed.skip)
+  }
+  prepared.sourcePrior = await readSourceArchiveRestoreMatches(incomingSourceByStore, { signal })
+  for (const [storeName, usable] of Object.entries(incomingSourceByStore)) {
+    const diffed = diffRecordSets(usable, prepared.sourcePrior[storeName])
+    prepared.sourceDiff[storeName] = diffed
+    source.add = source.add.concat(diffed.add)
+    source.overwrite = source.overwrite.concat(diffed.overwrite)
+    source.skip = source.skip.concat(diffed.skip)
   }
   try {
-    await assertArchiveCapacity(incomingSourceByStore)
+    if (source.add.length || source.overwrite.length) await assertArchiveCapacity(incomingSourceByStore)
   } catch (error) {
     return invalidInspection([error?.message || '来源归档超过可恢复容量'])
   }
 
   // media 域
-  const mediaEntry = await readJsonEntry(entries, MEDIA_METADATA_PATH)
+  const mediaEntry = jsonEntry(MEDIA_METADATA_PATH)
   if (mediaEntry.error) return invalidInspection([mediaEntry.error])
   const mediaAssets = Array.isArray(mediaEntry.value) ? mediaEntry.value : null
   if (!mediaAssets) return invalidInspection(['media/metadata.json 不是资产数组'])
-  const currentMedia = readMediaAssets(storage)
+  const currentMedia = new Map(parseMediaAssets(storage.getItem(STORAGE_KEYS.MEDIA_ASSETS)).map(asset => [asset.id, asset]))
+  const binaryIds = mediaAssets.filter(asset => typeof asset?.id === 'string' && !mediaExternalOnly(asset) && entries.has(binaryPathFor(asset))).map(asset => asset.id)
+  const localBlobs = await readMediaBinaries([...new Set(binaryIds)], binaryStore)
   const media = { add: [], overwrite: [], skip: [], missingBinaryIds: [], externalOnly: [], unrestoreable: [] }
+  prepared.media = []
+  const seen = new Set()
   for (const asset of mediaAssets) {
-    if (!asset?.id || Number(asset.schemaVersion ?? MEDIA_ASSET_SCHEMA_VERSION) !== MEDIA_ASSET_SCHEMA_VERSION) {
+    if (typeof asset?.id !== 'string' || !asset.id || Number(asset.schemaVersion ?? MEDIA_ASSET_SCHEMA_VERSION) !== MEDIA_ASSET_SCHEMA_VERSION) {
       media.unrestoreable.push(asset?.id || '(无 id)')
       continue
     }
-    if (mediaExternalOnly(asset)) {
-      media.externalOnly.push(asset)
-      continue
+    if (seen.has(asset.id)) return invalidInspection([`媒体存在重复ID：${asset.id}`])
+    seen.add(asset.id)
+    const external = mediaExternalOnly(asset)
+    const assetPath = binaryPathFor(asset)
+    const hasBinary = !external && entries.has(assetPath)
+    if (external) media.externalOnly.push(asset)
+    else if (!hasBinary) media.missingBinaryIds.push(asset.id)
+    assertLive(signal)
+    const binaryBytes = hasBinary ? await verifiedEntry(assetPath) : null
+    if (hasBinary && !binaryBytes) return invalidInspection([`文件校验失败：${assetPath} 的内容与 manifest 记录不一致`])
+    uncheckedBinaries.delete(assetPath)
+    const current = currentMedia.get(asset.id)
+    const priorBlob = hasBinary ? localBlobs.get(asset.id) ?? null : null
+    const priorBytes = await blobToUint8(priorBlob)
+    const priorHash = priorBytes ? await fileDigest(priorBytes) : null
+    const binaryHash = hasBinary ? manifest.files[assetPath] : null
+    const metadataChanged = current && JSON.stringify(current) !== JSON.stringify(asset)
+    const binaryChanged = hasBinary && binaryHash !== priorHash
+    const bucket = metadataChanged || (priorHash && binaryChanged) ? 'overwrite'
+      : !current || binaryChanged ? 'add' : 'skip'
+    media[bucket].push(asset)
+    const install = binaryChanged && prepared.restore && (bucket === 'add' || prepared.overwrite)
+    prepared.media.push({ asset, current, bucket, binaryChanged, priorBlob: install ? priorBlob : null, priorHash, binaryHash })
+  }
+  // Older bundles may contain an unreferenced binary. Its integrity is
+  // covered by the manifest even though there is no asset to install.
+  for (const path of uncheckedBinaries) {
+    if (!await verifiedEntry(path)) {
+      return invalidInspection([`文件校验失败：${path} 的内容与 manifest 记录不一致`])
     }
-    const binaryEntry = entries.get(binaryPathFor(asset))
-    if (!binaryEntry) {
-      media.missingBinaryIds.push(asset.id)
-      continue
-    }
-    const current = currentMedia.find((item) => item.id === asset.id)
-    if (!current) media.add.push(asset)
-    else if (JSON.stringify(current) === JSON.stringify(asset)) media.skip.push(asset)
-    else media.overwrite.push(asset)
   }
 
   const counts = {
@@ -564,6 +604,21 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
     warnings.push(`${media.missingBinaryIds.length} 个媒体在备份中没有二进制，恢复后仅保留元数据`)
   }
 
+  // Bind confirmation to every reviewed record, including a record that
+  // matched during preview but was deleted before the restore request.
+  const hashValue = value => sha256HexOfBytes(utf8Bytes(value))
+  const conflicts = [['localStorage', localStoragePlan.reviewRevision], ['bundle', manifest.files]]
+  for (const [store, diff] of Object.entries(prepared.sourceDiff)) {
+    // The manifest already authenticates the incoming record; equality needs
+    // only a marker. Hash the live content only when it differs from the ZIP.
+    for (const item of diff.add) conflicts.push([store, item.id, null])
+    for (const item of diff.skip) conflicts.push([store, item.id, 'same'])
+    for (const item of diff.overwrite) conflicts.push([store, item.id, hashValue(JSON.stringify(prepared.sourcePrior[store].get(item.id)))])
+  }
+  for (const item of prepared.media) {
+    conflicts.push(['media', item.asset.id, hashValue(JSON.stringify(item.current ?? null)), item.priorHash])
+  }
+
   return {
     valid: true,
     errors: [],
@@ -579,7 +634,8 @@ export async function inspectWorkspaceBackup(input, { storage = localStorage, si
     missingDomains: manifest.domains?.factLedger ? [] : ['factLedger'],
     media,
     counts,
-    requiresRiskConfirmation: localStoragePlan.requiresRiskConfirmation
+    reviewRevision: hashValue(JSON.stringify(conflicts)),
+    requiresRiskConfirmation: localStoragePlan.requiresRiskConfirmation || counts.overwrite > 0
   }
 }
 
@@ -593,20 +649,22 @@ export async function restoreWorkspaceBackupBundle(input, {
   storage = localStorage,
   overwrite = true,
   acceptRestoreRisk = false,
+  expectedReviewRevision,
   signal,
   binaryStore = undefined
 } = {}) {
   assertLive(signal)
-  const inspection = await inspectWorkspaceBackup(input, { storage, signal })
+  const prepared = { restore: true, overwrite }
+  const inspection = await inspectBundle(input, { storage, signal, binaryStore }, prepared)
   if (!inspection.valid) {
     return { success: false, reason: 'invalid-backup', inspection, domains: null }
   }
-  if (inspection.requiresRiskConfirmation && !acceptRestoreRisk) {
+  const previewChanged = expectedReviewRevision !== undefined && expectedReviewRevision !== inspection.reviewRevision
+  if (previewChanged) return { success: false, reason: 'restore-review-changed', inspection, domains: null }
+  if (overwrite && inspection.requiresRiskConfirmation && !acceptRestoreRisk) {
     return { success: false, reason: 'restore-risk-not-accepted', inspection, domains: null }
   }
 
-  const bytes = await toUint8(input)
-  const zip = await JSZip.loadAsync(bytes)
   assertLive(signal)
 
   const domains = {
@@ -619,70 +677,45 @@ export async function restoreWorkspaceBackupBundle(input, {
 
   // ---- 捕获恢复前状态（补偿回滚依据） ----
   const ledgerRestore = { db: null, written: null }
-  const sourcePrior = await loadAllSourceArchiveRecords()
-  const mediaAssets = JSON.parse(await zip.files[MEDIA_METADATA_PATH].async('string'))
-  const mediaPriorBlobs = new Map()
-  for (const asset of mediaAssets) {
-    if (mediaExternalOnly(asset)) continue
-    if (!zip.files[binaryPathFor(asset)]) continue
-    assertLive(signal)
-    try {
-      mediaPriorBlobs.set(asset.id, await getMediaBinaryById(asset.id, { binaryStore }))
-    } catch {
-      mediaPriorBlobs.set(asset.id, null)
+  const sourceWrites = Object.fromEntries(Object.entries(prepared.sourceDiff).map(([store, diff]) => [
+    store, overwrite ? [...diff.add, ...diff.overwrite] : diff.add
+  ]))
+  const rollbackSource = () => undoSourceArchiveRestore(sourceWrites, prepared.sourcePrior)
+  const mediaWrites = prepared.media.filter(item => item.bucket === 'add' || overwrite && item.bucket === 'overwrite')
+  const writtenMedia = []
+  const mediaStore = binaryStore || createIndexedDbBinaryStore()
+  async function replaceMedia(id, expectedHash, replacement) {
+    const matches = async blob => {
+      const bytes = await blobToUint8(blob)
+      return (bytes ? await fileDigest(bytes) : null) === expectedHash
     }
+    if (mediaStore.replaceMatching) return mediaStore.replaceMatching(id, matches, replacement)
+    if (!await matches(await getMediaBinaryById(id, { binaryStore: mediaStore }))) return false
+    if (replacement) await putMediaBinaryById(id, replacement, { binaryStore: mediaStore })
+    else await deleteMediaBinaryById(id, { binaryStore: mediaStore })
+    return true
   }
-
-  const sourceRecords = {}
-  for (const storeName of Object.keys(SOURCE_ARCHIVE_PATHS)) {
-    sourceRecords[storeName] = JSON.parse(await zip.files[SOURCE_ARCHIVE_PATHS[storeName]].async('string'))
-  }
-  const sourceUsable = {}
-  const invalidSourceIds = new Set(inspection.sourceArchive.unrestoreable.map(String))
-  for (const storeName of Object.keys(SOURCE_ARCHIVE_PATHS)) {
-    sourceUsable[storeName] = sourceRecords[storeName]
-      .filter((record) => !invalidSourceIds.has(String(record.id)))
-  }
-
   const rollbackMedia = async () => {
-    for (const [id, priorBlob] of mediaPriorBlobs.entries()) {
-      if (priorBlob) await putMediaBinaryById(id, priorBlob, { binaryStore })
-      else await deleteMediaBinaryById(id, { binaryStore })
+    let conflicts = 0
+    for (const { asset, priorBlob, binaryHash } of writtenMedia) {
+      if (!await replaceMedia(asset.id, binaryHash, priorBlob)) conflicts++
     }
+    if (conflicts) throw new Error('部分媒体在恢复后已修改，保留较新的编辑')
   }
 
   // ---- 1. source archive ----
   try {
     assertLive(signal)
-    const written = await restoreSourceArchiveRecords(
-      {
-        artifacts: overwrite || !inspection.localStoragePlan
-          ? sourceUsable.artifacts
-          : sourceUsable.artifacts.filter((record) => !inspection.sourceArchive.skip.some((item) => item.id === record.id)),
-        chunks: sourceUsable.chunks,
-        workspaces: sourceUsable.workspaces
-      },
-      { signal }
-    )
+    const writeCount = Object.values(sourceWrites).reduce((total, rows) => total + rows.length, 0)
+    if (writeCount) await restoreSourceArchiveRecords(sourceWrites, { signal, expected: prepared.sourcePrior })
     domains.sourceArchive = domainResult(true, {
-      written: written.written.artifacts + written.written.chunks + written.written.workspaces,
-      skipped: inspection.sourceArchive.skip.length
+      written: writeCount,
+      skipped: inspection.sourceArchive.skip.length + (overwrite ? 0 : inspection.sourceArchive.overwrite.length)
     })
   } catch (error) {
     const cancelled = error.name === 'WorkspaceBackupCancelled'
-    let rolledBack = true
-    let rollbackFailed = false
-    try {
-      await replaceAllSourceArchiveRecords(sourcePrior)
-    } catch {
-      rolledBack = false
-      rollbackFailed = true
-    }
-    domains.sourceArchive = domainResult(false, {
-      reason: error?.message || '来源归档恢复失败',
-      rolledBack,
-      rollbackFailed
-    })
+    // The source adapter commits all three stores in one transaction.
+    domains.sourceArchive = domainResult(false, { reason: error?.message || '来源归档恢复失败', rolledBack: true })
     if (cancelled) throw error
     return { success: false, reason: 'source-restore-failed', inspection, domains }
   }
@@ -691,25 +724,17 @@ export async function restoreWorkspaceBackupBundle(input, {
   try {
     assertLive(signal)
     let written = 0
-    let skipped = 0
-    for (const asset of mediaAssets) {
+    let skipped = prepared.media.length - mediaWrites.length
+    for (const item of mediaWrites) {
       assertLive(signal)
-      if (mediaExternalOnly(asset)) continue
-      const binaryEntry = zip.files[binaryPathFor(asset)]
-      if (!binaryEntry) continue
-      const incomingBytes = await readEntryBytes(binaryEntry)
-      const priorBlob = mediaPriorBlobs.get(asset.id)
-      const priorBytes = await blobToUint8(priorBlob)
-      if (priorBytes && sha256HexOfBytes(priorBytes) === sha256HexOfBytes(incomingBytes)) {
-        skipped += 1
-        continue
-      }
-      if (!overwrite && inspection.media.skip.some((item) => item.id === asset.id)) {
-        skipped += 1
-        continue
-      }
-      await putMediaBinaryById(asset.id, new Blob([incomingBytes]), { binaryStore })
-      written += 1
+      if (!item.binaryChanged) { skipped++; continue }
+      const { asset, priorHash } = item
+      const bytes = await prepared.readBinary(binaryPathFor(asset))
+      if (!bytes) throw new Error('媒体文件在恢复期间校验失败')
+      const incoming = new Blob([bytes], { type: asset.mimeType })
+      if (!await replaceMedia(asset.id, priorHash, incoming)) throw new Error('媒体在恢复期间已变化')
+      writtenMedia.push(item)
+      written++
     }
     domains.media = domainResult(true, { written, skipped })
   } catch (error) {
@@ -729,7 +754,7 @@ export async function restoreWorkspaceBackupBundle(input, {
     })
     // 反向顺序：回滚 media，再回滚 source
     try {
-      await replaceAllSourceArchiveRecords(sourcePrior)
+      await rollbackSource()
       domains.sourceArchive.rolledBack = true
     } catch {
       domains.sourceArchive.rolledBack = false
@@ -750,7 +775,7 @@ export async function restoreWorkspaceBackupBundle(input, {
     const operations = {
       factLedger: rollbackLedger,
       media: rollbackMedia,
-      sourceArchive: () => replaceAllSourceArchiveRecords(sourcePrior)
+      sourceArchive: rollbackSource
     }
     for (const name of names) {
       try { await operations[name](); domains[name].rolledBack = true }
@@ -762,13 +787,11 @@ export async function restoreWorkspaceBackupBundle(input, {
     assertLive(signal)
     // inspection already refused declared-but-unavailable packages, so file
     // presence is the only remaining question (same pattern as memoryHistory).
-    const wantsLedger = Boolean(zip.files[FACT_LEDGER_PATH])
-    if (wantsLedger) {
+    if (prepared.factLedger) {
       const opened = await openLedgerDb({ openTimeoutMs: 1500 })
       if (!opened.ok) throw new Error(opened.detail || opened.reason)
       ledgerRestore.db = opened.db
-      const ledgerValue = JSON.parse(await zip.files[FACT_LEDGER_PATH].async('string'))
-      const importResult = await importLedgerDomain(ledgerRestore.db, ledgerValue)
+      const importResult = await importLedgerDomain(ledgerRestore.db, prepared.factLedger)
       if (!importResult.ok) throw new Error(importResult.reason)
       ledgerRestore.written = importResult.written
       const written = Object.values(importResult.written).reduce((n, ids) => n + ids.length, 0)
@@ -788,8 +811,7 @@ export async function restoreWorkspaceBackupBundle(input, {
   let importedHistoryIds = []
   try {
     assertLive(signal)
-    const history = zip.files[MEMORY_HISTORY_PATH]
-      ? JSON.parse(await zip.files[MEMORY_HISTORY_PATH].async('string')) : []
+    const history = prepared.memoryHistory || []
     importedHistoryIds = await importMemoryHistory(history)
     domains.memoryHistory = domainResult(true, { written: importedHistoryIds.length, skipped: history.length - importedHistoryIds.length })
   } catch (error) {
@@ -798,10 +820,41 @@ export async function restoreWorkspaceBackupBundle(input, {
     if (error.name === 'WorkspaceBackupCancelled') throw error
     return { success: false, reason: 'memory-history-restore-failed', inspection, domains }
   }
-  try {
+  function commitLocalStorage() {
     assertLive(signal)
-    const lsJson = await zip.files[LOCAL_STORAGE_PATH].async('string')
-    const lsResult = restoreBackup(lsJson, { storage, overwrite, acceptRestoreRisk: true })
+    const keys = Object.create(null)
+    for (const [key, value] of Object.entries(prepared.localStorageBackup.keys)) {
+      if (!prepared.localPrior.has(key)) continue
+      const current = readRestoreComparison(storage, key)
+      if (expectedReviewRevision !== undefined && current !== prepared.localPrior.get(key)) {
+        throw Object.assign(new Error(`恢复期间存储键已变化：${key}`), { code: 'RESTORE_REVIEW_CHANGED' })
+      }
+      if (current === value) {
+        // An interrupted bookshelf restore can leave an unpublished mirror
+        // epoch. The shared JSON owner settles it on an explicit ZIP retry.
+        if (key === STORAGE_KEYS.WRITING_BOOKS) keys[key] = value
+        continue
+      }
+      if (current !== null && !overwrite) continue
+      if (current !== prepared.localPrior.get(key)) throw new Error(`恢复期间存储键已变化：${key}`)
+      keys[key] = value
+    }
+    if (mediaWrites.length) {
+      const latest = new Map(parseMediaAssets(storage.getItem(STORAGE_KEYS.MEDIA_ASSETS)).map(asset => [asset.id, asset]))
+      for (const { asset, current } of mediaWrites) {
+        if (JSON.stringify(latest.get(asset.id)) !== JSON.stringify(current)) {
+          throw Object.assign(new Error('媒体元数据在恢复期间已变化'), { code: 'RESTORE_REVIEW_CHANGED' })
+        }
+        latest.set(asset.id, asset)
+      }
+      keys[STORAGE_KEYS.MEDIA_ASSETS] = JSON.stringify([...latest.values()])
+    }
+    return restoreBackup({ ...prepared.localStorageBackup, keys }, { storage, overwrite: true, acceptRestoreRisk: true })
+  }
+  try {
+    // ZIP decoding and IndexedDB work finish first. Only the synchronous
+    // recheck and localStorage commit share the author's chapter-save lock.
+    const lsResult = await withWritingBooksLock(commitLocalStorage)
     if (!lsResult.success) {
       try { await rollbackImportedMemoryHistory(importedHistoryIds); domains.memoryHistory.rolledBack = true }
       catch { domains.memoryHistory.rollbackFailed = true }
@@ -815,18 +868,22 @@ export async function restoreWorkspaceBackupBundle(input, {
     }
     domains.localStorage = domainResult(true, {
       written: lsResult.written.length,
-      skipped: lsResult.skipped.length
+      skipped: new Set([...lsResult.skipped, ...inspection.localStoragePlan.skip, ...(overwrite ? [] : inspection.localStoragePlan.overwrite)]).size
     })
   } catch (error) {
     try { await rollbackImportedMemoryHistory(importedHistoryIds); domains.memoryHistory.rolledBack = true }
     catch { domains.memoryHistory.rollbackFailed = true }
     await compensate(['factLedger', 'media', 'sourceArchive'])
-    const rollbackFailed = ['factLedger', 'media', 'sourceArchive'].some(name => domains[name].rollbackFailed)
+    const rollbackFailed = ['memoryHistory', 'factLedger', 'media', 'sourceArchive'].some(name => domains[name].rollbackFailed)
     if (error.name === 'WorkspaceBackupCancelled') throw error
     domains.localStorage = domainResult(false, {
       reason: error?.message || 'localStorage 恢复失败',
       rollbackFailed
     })
+    if (expectedReviewRevision !== undefined && error.code === 'RESTORE_REVIEW_CHANGED' && !rollbackFailed) {
+      const latest = await inspectWorkspaceBackup(input, { storage, signal, binaryStore })
+      return { success: false, reason: latest.valid ? 'restore-review-changed' : 'invalid-backup', inspection: latest, domains }
+    }
     return { success: false, reason: 'local-storage-restore-failed', inspection, domains }
   }
 

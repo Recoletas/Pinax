@@ -97,9 +97,56 @@ function openMediaDatabase(indexedDBImpl) {
   })
 }
 
+// Compare and replace in the same IDB transaction. Reading a Blob's bytes is
+// asynchronous, so keep one IDB request outstanding until its digest is ready.
+async function replaceMatchingBinary(indexedDBImpl, id, matches, replacement) {
+  const database = await openMediaDatabase(indexedDBImpl)
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = database.transaction(MEDIA_BINARY_STORE_NAME, 'readwrite')
+      const store = transaction.objectStore(MEDIA_BINARY_STORE_NAME)
+      let compared = false, matched = false, failure
+      const request = store.get(id)
+      request.onsuccess = () => {
+        Promise.resolve().then(() => matches(request.result ?? null)).then(value => {
+          matched = value
+          compared = true
+        }, error => { failure = error; compared = true })
+        const advance = () => {
+          if (failure) transaction.abort()
+          else if (!compared) store.count(id).onsuccess = advance
+          else if (matched && replacement) store.put(replacement, id)
+          else if (matched) store.delete(id)
+        }
+        advance()
+      }
+      transaction.oncomplete = () => resolve(matched)
+      transaction.onabort = () => reject(failure || transaction.error || new Error('媒体事务中止'))
+    })
+  } finally { database.close() }
+}
+
 export function createIndexedDbBinaryStore(options = {}) {
   const indexedDBImpl = options.indexedDBImpl || globalThis.indexedDB
   return {
+    async getMany(ids) {
+      const rows = new Map()
+      if (!ids.length) return rows
+      const database = await openMediaDatabase(indexedDBImpl)
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = database.transaction(MEDIA_BINARY_STORE_NAME, 'readonly')
+          const store = tx.objectStore(MEDIA_BINARY_STORE_NAME)
+          for (const id of ids) {
+            const request = store.get(id)
+            request.onsuccess = () => { if (request.result != null) rows.set(id, request.result) }
+          }
+          tx.oncomplete = () => resolve(rows)
+          tx.onabort = () => reject(tx.error || new Error('媒体读取事务已取消'))
+        })
+      } finally { database.close() }
+    },
+    replaceMatching: (id, matches, replacement) => replaceMatchingBinary(indexedDBImpl, id, matches, replacement),
     put: (id, blob) => runIndexedDbRequest(indexedDBImpl, 'readwrite', (store) => store.put(blob, id)),
     get: (id) => runIndexedDbRequest(indexedDBImpl, 'readonly', (store) => store.get(id)),
     delete: (id) => runIndexedDbRequest(indexedDBImpl, 'readwrite', (store) => store.delete(id)),

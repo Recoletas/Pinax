@@ -176,10 +176,11 @@
                   v-else
                   type="button"
                   :class="['edt-cell-btn', { 'is-empty': !cell.value, 'is-out-of-sync': cell.outOfSync }]"
+                  :aria-label="cell.value ? undefined : tr('编辑{field}', { field: cell.label })"
                   :title="cell.outOfSync ? tr('这一格与正文不一致；改用「覆盖条目正文」把它写进正文') : ''"
                   :disabled="Boolean(savingId) || failed || Boolean(pendingEdit)"
                   @click="startEdit(row.entry, cell.label)"
-                >{{ cell.value || tr('点击填写') }}</button>
+                >{{ cell.value || '—' }}</button>
               </td>
               <td class="edt-cell edt-cell-action">
                 <template v-if="deleteArmId === String(row.entry.id)">

@@ -1,4 +1,5 @@
 <script setup>
+import { sceneTimeLabel } from '../../services/agents/authoring/authoringSceneAnchors.js'
 import { ref, watch, computed } from 'vue'
 import { tr } from '../../i18n/index.js'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
@@ -9,7 +10,7 @@ watch(() => [props.detailOpen, props.recognitionPending], ([detail, pending], pr
 </script>
 <template>
   <details class="rehearsal-current-scene" :open="expanded" data-test="rehearsal-current-scene" @toggle="expanded = $event.currentTarget.open">
-    <summary><span><strong>{{ tr('当前') }}</strong><span class="rehearsal-current-scene__summary">{{ [projection.location?.name, projection.time?.label, people].filter(Boolean).join(' · ') || tr('设置地点、时间和在场人物') }}</span></span><WorkbenchIcon name="chevron-down" :size="15" /></summary>
+    <summary><span><strong>{{ tr('当前') }}</strong><span class="rehearsal-current-scene__summary">{{ [projection.location?.name, sceneTimeLabel(projection.time, tr('故事序号')), people].filter(Boolean).join(' · ') || tr('设置地点、时间和在场人物') }}</span></span><WorkbenchIcon name="chevron-down" :size="15" /></summary>
     <div class="rehearsal-current-scene__content"><slot /></div>
   </details>
 </template>

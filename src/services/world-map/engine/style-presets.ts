@@ -69,7 +69,7 @@ const PRESETS: Record<MapStylePreset, StyleConfig> = {
     oceanDepth: ['#dceceb', '#badde3', '#8fc8d6', '#5da6bf', '#347c9f'],
     coastline: '#397f8b',
     coastGlow: 'rgba(112, 171, 180, 0.28)',
-    river: '#327fa9',
+    river: '#477f91',
     riverGlow: 'rgba(60, 130, 200, 0.25)',
     riverHighlight: 'rgba(160, 210, 245, 0.3)',
     borderAlpha: 0.72,

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { tr } from '../../i18n/index.js'
 import { loadWritingBooks, subscribeWritingBooks } from '../../services/writing/writingBooksRepository.js'
 import { settingContext } from '../../services/worldbook/settingContextModel.js'
+import SettingEntityLedger from './SettingEntityLedger.vue'
 import WorkbenchIcon from '../workbench/WorkbenchIcon.vue'
 import { vWorkbenchTooltip } from '../workbench/workbenchTooltip.js'
 const props = defineProps({ bookId: String, worldbook: Object, entry: Object, chapterId: String, busy: Boolean })
@@ -10,7 +11,8 @@ const emit = defineEmits(['locate', 'entry', 'map'])
 const books = ref(loadWritingBooks())
 const unsubscribe = subscribeWritingBooks(() => { books.value = loadWritingBooks() })
 onBeforeUnmount(unsubscribe)
-const context = computed(() => settingContext({ book: books.value.find(book => String(book.id) === props.bookId), worldbook: props.worldbook, entry: props.entry, chapterId: props.chapterId }))
+const boundBook = computed(() => books.value.find(book => String(book.id) === props.bookId && book.worldbookId === props.worldbook?.id))
+const context = computed(() => settingContext({ book: boundBook.value, worldbook: props.worldbook, entry: props.entry, chapterId: props.chapterId }))
 const limit = ref(12), historyLimit = ref(8)
 watch(() => [props.bookId, props.worldbook?.id, props.entry?.id], () => { limit.value = 12; historyLimit.value = 8 })
 const relevantHere = computed(() => props.entry?.type === 'character'
@@ -33,6 +35,8 @@ const relevantHere = computed(() => props.entry?.type === 'character'
       </template>
       <p v-else class="setting-context__empty">{{ context.chapter ? tr('本章尚无有效场景记录，可在正文的推演中设置。') : tr('先打开一章正文，即可对照本章场景。') }}</p>
     </section>
+    <SettingEntityLedger v-if="boundBook && worldbook?.entries?.some(item => item.id === entry?.id)"
+      :key="JSON.stringify([bookId, worldbook.id, entry.id])"  :book="boundBook" :worldbook="worldbook" :entry="entry" :scene="context.chapterScene" :busy="busy" @entry="target => emit('entry', target)" @locate="target => emit('locate', target)" />
     <section v-if="context.location" class="setting-context__section">
       <header><WorkbenchIcon name="map" :size="16" /><h3>{{ tr('地图') }}</h3><span>{{ tr(context.location.mapStatusLabel) }}</span></header>
       <p v-if="context.location.mapName || context.location.region" class="setting-context__caption">{{ [context.location.mapName, context.location.region].filter(Boolean).join(' · ') }}</p>
