@@ -76,10 +76,11 @@ watch([opened, key, () => props.book.id, () => props.entry.type,
       <ul v-if="result.facts.items.length"><li v-for="row in result.facts.items.slice(0, limit)" :key="row.id">
         <template v-if="row.polarity !== 'negative' && !row.literalValue && (row.subjectKey === key || row.objectRef === key)">
           <span class="fact-label">{{ row.predicate }}</span>
-          <button v-if="relatedEntries(row).length === 1" type="button" class="fact-value" :disabled="busy" @click="emit('entry', relatedEntries(row)[0])">{{ row.subjectKey === key ? row.object : row.subjectLabel }} ›</button>
+          <button v-if="relatedEntries(row).length === 1" type="button" class="fact-value" :disabled="busy" @click="emit('entry', relatedEntries(row)[0])">{{ row.subjectKey === key ? row.object : row.subjectLabel }} <span aria-hidden="true">›</span></button>
           <strong v-else>{{ row.subjectKey === key ? row.object : row.subjectLabel }}</strong>
         </template>
         <span v-else>{{ worldClaimLabel(row) }}</span>
+        <small v-if="row.objectRef === key && row.subjectKey !== key && row.object !== (entry.name || key) && row.polarity !== 'negative' && !row.literalValue">{{ row.object }}</small>
         <small v-for="person in row.eventContext?.participants.filter(person => person.entityRef === key)" :key="person.role">{{ person.role }}</small>
         <div class="entity-actions">
           <button v-for="other in (relatedEntries(row).length === 1 && row.polarity !== 'negative' && !row.literalValue && (row.subjectKey === key || row.objectRef === key) ? [] : relatedEntries(row))" :key="other.id" type="button" :disabled="busy" @click="emit('entry', other)">{{ other.name || other.id }}</button>
